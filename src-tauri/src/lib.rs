@@ -232,6 +232,31 @@ async fn rename_entry(app: tauri::AppHandle, path: String, name: String) -> Resu
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn delete_entry(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = in_workspace(&workspace_root(&app)?, Path::new(&path))?;
+        // Hidden entries such as the app's own state folder are never shown in the sidebar.
+        if target
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+        {
+            return Err("That item can't be moved to the Trash".into());
+        }
+        #[allow(unused_mut)]
+        let mut trash = trash::TrashContext::new();
+        // The default asks Finder over AppleScript, which needs the user to grant Automation access.
+        #[cfg(target_os = "macos")]
+        trash::macos::TrashContextExtMacos::set_delete_method(
+            &mut trash,
+            trash::macos::DeleteMethod::NsFileManager,
+        );
+        trash.delete(&target).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // Replace only after a complete write; a failed save leaves the original intact.
 fn atomic_write(path: &Path, data: &str) -> Result<(), String> {
     let parent = path.parent().ok_or("Missing destination folder")?;
@@ -557,6 +582,7 @@ pub fn run() {
             create_drawing,
             create_folder,
             rename_entry,
+            delete_entry,
             linked_documents,
             forget_document
         ])

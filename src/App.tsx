@@ -4,9 +4,10 @@ import type { ExcalidrawImperativeAPI, ExcalidrawInitialDataState, ExcalidrawPro
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { Menu, type MenuOptions } from "@tauri-apps/api/menu";
 import { createWriteQueue, fileName, isWithin, parentPath, remapPath, validateDrawing } from "./document";
 import { cssFamily, fontId, lineHeight, type SystemFont } from "./fonts";
-import { createDrawing, createFolder, desktop, forgetDocument, listFonts, openDocument, readDrawing, readLinked, readRecovery, readWorkspace, renameEntry, saveDocument, writeRecovery, type Entry, type LinkedDocument, type Workspace } from "./storage";
+import { createDrawing, createFolder, deleteEntry, desktop, forgetDocument, listFonts, openDocument, readDrawing, readLinked, readRecovery, readWorkspace, renameEntry, saveDocument, writeRecovery, type Entry, type LinkedDocument, type Workspace } from "./storage";
 
 type Choice = "save" | "discard" | "cancel";
 
@@ -39,7 +40,8 @@ export default function App() {
   const dialog = useRef<HTMLDialogElement>(null);
   const handlers = useRef({
     new: () => {}, open: () => {}, save: (_as?: boolean) => {}, close: () => {},
-    openEntry: (_path: string) => {}, forget: (_path: string) => {}, newFolder: () => {}, rename: (_entry: Entry, _name: string | null) => {},
+    openEntry: (_path: string) => {}, forget: (_path: string) => {}, newFolder: (_parent?: string) => {}, rename: (_entry: Entry, _name: string | null) => {},
+    remove: (_entry: Entry) => {},
   });
   const mounted = useRef(true);
 
@@ -183,12 +185,23 @@ export default function App() {
       await forgetDocument(target);
       await refresh();
     }); },
-    newFolder: () => { void run(async () => {
+    newFolder: (parent?: string) => { void run(async () => {
       if (!workspace) return;
-      const created = await createFolder(folder ?? workspace.root);
+      const created = await createFolder(parent ?? folder ?? workspace.root);
       reveal(created, workspace.root);
       await refresh();
       setRenaming(created);
+    }); },
+    remove: (entry: Entry) => { void run(async () => {
+      await deleteEntry(entry.path);
+      if (currentPath.current && isWithin(currentPath.current, entry.path)) {
+        // Unsaved edits stay on screen as an untitled drawing instead of disappearing with the file.
+        if (dirtyRef.current) { currentPath.current = null; setPath(null); await persistRecovery(); }
+        else await replaceDocument(null, null);
+      }
+      setFolder((value) => value && isWithin(value, entry.path) ? null : value);
+      setExpanded((previous) => new Set([...previous].filter((value) => !isWithin(value, entry.path))));
+      await refresh();
     }); },
     rename: (entry: Entry, name: string | null) => {
       setRenaming(null);
@@ -262,7 +275,12 @@ export default function App() {
       if (dirtyRef.current) { event.preventDefault(); event.returnValue = ""; }
     };
     const visibility = () => { if (document.visibilityState === "hidden") void persistRecovery().catch(report); };
+    // The webview's Reload / Inspect Element menu is only useful in text fields (for copy and paste).
+    const contextMenu = (event: MouseEvent) => {
+      if (desktop && !(event.target as Element).closest?.("input, textarea, [contenteditable]")) event.preventDefault();
+    };
     window.addEventListener("keydown", keydown, true);
+    window.addEventListener("contextmenu", contextMenu);
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("visibilitychange", visibility);
     let unlisten: (() => void) | undefined;
@@ -279,6 +297,7 @@ export default function App() {
       unlisten?.();
       unlistenQuit?.();
       window.removeEventListener("keydown", keydown, true);
+      window.removeEventListener("contextmenu", contextMenu);
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("visibilitychange", visibility);
     };
@@ -323,6 +342,14 @@ export default function App() {
           },
           startRename: (entry) => setRenaming(entry.path),
           rename: (entry, name) => handlers.current.rename(entry, name),
+          menu: (entry) => showMenu([
+            entry.folder
+              ? { text: "New Folder", action: () => handlers.current.newFolder(entry.path) }
+              : { text: "Open", enabled: entry.path !== path, action: () => handlers.current.openEntry(entry.path) },
+            { text: "Rename", action: () => setRenaming(entry.path) },
+            { item: "Separator" },
+            { text: "Move to Trash", action: () => handlers.current.remove(entry) },
+          ], report),
         }} />}
         {linked.length > 0 && <>
           <h2 className="sidebar-heading">Other locations</h2>
@@ -330,7 +357,12 @@ export default function App() {
             const active = item.path === path;
             return <div key={item.path} className={`tree-row ${active ? "active" : ""} ${item.missing ? "missing" : ""}`} style={{ "--depth": 0 } as CSSProperties}>
               <button className="sidebar-item" role="treeitem" aria-current={active || undefined} disabled={disabled}
-                title={item.missing ? `Not found: ${item.path}` : item.path} onClick={() => handlers.current.openEntry(item.path)}>
+                title={item.missing ? `Not found: ${item.path}` : item.path} onClick={() => handlers.current.openEntry(item.path)}
+                onContextMenu={() => { if (!disabled) showMenu([
+                  { text: "Open", enabled: !active && !item.missing, action: () => handlers.current.openEntry(item.path) },
+                  { item: "Separator" },
+                  { text: "Remove from Sidebar", action: () => handlers.current.forget(item.path) },
+                ], report); }}>
                 <Icon name="file" /><span className="label">{item.name}</span>
                 {active && dirty ? <span className="dirty-dot" aria-label="Unsaved changes" /> : <span className="hint">{item.location}</span>}
               </button>
@@ -406,6 +438,7 @@ function SidebarItem({ icon, label, shortcut, disabled, onClick }: { icon: IconN
 type TreeContext = {
   path: string | null; dirty: boolean; expanded: Set<string>; folder: string | null; renaming: string | null; disabled: boolean;
   open: (entry: Entry) => void; startRename: (entry: Entry) => void; rename: (entry: Entry, name: string | null) => void;
+  menu: (entry: Entry) => void;
 };
 
 function Tree({ entries, depth, tree }: { entries: Entry[]; depth: number; tree: TreeContext }) {
@@ -417,7 +450,8 @@ function Tree({ entries, depth, tree }: { entries: Entry[]; depth: number; tree:
     return <Fragment key={entry.path}>
       {tree.renaming === entry.path
         ? <div className="tree-row" style={style}><div className="sidebar-item editing"><Icon name={icon} /><RenameField name={entry.name} onDone={(name) => tree.rename(entry, name)} /></div></div>
-        : <div className={`tree-row ${active ? "active" : ""} ${entry.path === tree.folder ? "selected" : ""}`} style={style}>
+        : <div className={`tree-row ${active ? "active" : ""} ${entry.path === tree.folder ? "selected" : ""}`} style={style}
+          onContextMenu={() => { if (!tree.disabled) tree.menu(entry); }}>
           <button className="sidebar-item" role="treeitem" aria-expanded={entry.folder ? expanded : undefined} aria-current={active || undefined}
             disabled={tree.disabled} title={entry.name} onClick={() => tree.open(entry)} onDoubleClick={() => tree.startRename(entry)}>
             <Icon name={icon} /><span className="label">{entry.name}</span>{active && tree.dirty && <span className="dirty-dot" aria-label="Unsaved changes" />}
@@ -427,6 +461,14 @@ function Tree({ entries, depth, tree }: { entries: Entry[]; depth: number; tree:
       {expanded && <Tree entries={entry.children} depth={depth + 1} tree={tree} />}
     </Fragment>;
   })}</>;
+}
+
+// Menus live on the Rust side and are dropped once nothing references them, so the open one is kept here.
+let openMenu: Menu | null = null;
+
+function showMenu(items: NonNullable<MenuOptions["items"]>, onError: (reason: unknown) => void) {
+  if (!desktop) return;
+  void Menu.new({ items }).then((menu) => { openMenu = menu; return menu.popup(); }).catch(onError);
 }
 
 function RenameField({ name, onDone }: { name: string; onDone: (name: string | null) => void }) {

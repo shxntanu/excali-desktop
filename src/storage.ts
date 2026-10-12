@@ -46,6 +46,7 @@ export type LinkedDocument = { name: string; path: string; location: string; mis
 export const readLinked = () => invoke<LinkedDocument[]>("linked_documents");
 export const forgetDocument = (path: string) => invoke<void>("forget_document", { path });
 export const renameEntry = (path: string, name: string) => invoke<string>("rename_entry", { path, name });
+export const deleteEntry = (path: string) => invoke<void>("delete_entry", { path });
 export function createDrawing(folder: string, data: string) {
   validateDrawing(data);
   return invoke<string>("create_drawing", { folder, data });
