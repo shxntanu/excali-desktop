@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { createWriteQueue, fileName, parseRecovery, serializeRecovery, validateDrawing } from "./document.ts";
+import { createWriteQueue, fileName, validateDrawing } from "./document.ts";
 import { cssFamily, fontId, lineHeight } from "./fonts.ts";
 
 test("system fonts get stable ids clear of Excalidraw's own and valid CSS names", () => {

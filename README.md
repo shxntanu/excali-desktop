@@ -8,7 +8,13 @@
   <strong>A local, offline Excalidraw editor.</strong>
 </p>
 
-A local, offline Excalidraw editor built with Tauri 2, React, TypeScript, and Vite.
+## Install
+
+Run the following command to build and install Excali Desktop in `~/Applications` on your computer.
+
+```sh
+npm run desktop:build && mkdir -p ~/Applications && rm -rf ~/Applications/"Excali Desktop.app" && ditto src-tauri/target/release/bundle/macos/"Excali Desktop.app" ~/Applications/"Excali Desktop.app"
+```
 
 ## Run
 
