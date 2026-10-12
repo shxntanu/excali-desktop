@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { validateDrawing } from "./document";
+import type { SystemFont } from "./fonts";
 
 export const desktop = isTauri();
 const recoveryKey = "excali-desktop-recovery";
@@ -32,6 +33,27 @@ export async function saveDocument(path: string | null, data: string): Promise<s
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return link.download;
+}
+
+export type Entry = { name: string; path: string; folder: boolean; children: Entry[] };
+export type Workspace = { root: string; entries: Entry[] };
+
+// The drawings folder (~/.excali-desktop) exists only in the desktop app.
+export const readWorkspace = () => invoke<Workspace>("workspace");
+export const readDrawing = (path: string) => invoke<string>("read_drawing", { path });
+export const createFolder = (folder: string) => invoke<string>("create_folder", { folder });
+export type LinkedDocument = { name: string; path: string; location: string; missing: boolean };
+export const readLinked = () => invoke<LinkedDocument[]>("linked_documents");
+export const forgetDocument = (path: string) => invoke<void>("forget_document", { path });
+export const renameEntry = (path: string, name: string) => invoke<string>("rename_entry", { path, name });
+export function createDrawing(folder: string, data: string) {
+  validateDrawing(data);
+  return invoke<string>("create_drawing", { folder, data });
+}
+
+// The browser preview has no font list, so it offers only Excalidraw's bundled fonts.
+export async function listFonts(): Promise<SystemFont[]> {
+  return desktop ? invoke("list_fonts") : [];
 }
 
 export async function readRecovery(): Promise<string | null> {

@@ -18,4 +18,4 @@ People drawing and editing diagrams on their desktop who need local file persist
 Keep the drawing surface central. Make file actions visible. Protect unsaved work. Keep the application usable without a network connection.
 
 ## Implementation direction
-Use a compact, light shell for drawing at a desk in daylight, with system typography and a restrained indigo accent. Retain Excalidraw's familiar editing controls. Keyboard access, visible focus, and reduced motion are implementation defaults.
+A native-feeling window: overlay title bar with inset traffic lights, a translucent macOS sidebar for file actions, and the canvas filling the rest. Borrow Excalidraw's own tokens (Assistant font, #6965db primary, surface colors) and follow the system light/dark appearance. Keep copy to labels only. Keyboard access, visible focus, and reduced motion are implementation defaults.

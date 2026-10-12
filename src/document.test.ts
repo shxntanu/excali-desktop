@@ -1,6 +1,17 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { createWriteQueue, fileName, validateDrawing } from "./document.ts";
+import { cssFamily, fontId, lineHeight } from "./fonts.ts";
+
+test("system fonts get stable ids clear of Excalidraw's own and valid CSS names", () => {
+  assert.equal(fontId("Avenir Next"), fontId("Avenir Next"));
+  assert.notEqual(fontId("Avenir Next"), fontId("Avenir"));
+  assert.ok(fontId("") >= 10_000);
+  assert.equal(cssFamily('Odd "Name" \\ 3D'), '"Odd \\"Name\\" \\\\ 3D"');
+  // Excalifont's and Nunito's own metrics give Excalidraw's line heights for them.
+  assert.equal(lineHeight({ family: "Excalifont", unitsPerEm: 1000, ascender: 886, descender: -374 }), 1.25);
+  assert.equal(lineHeight({ family: "Nunito", unitsPerEm: 1000, ascender: 1011, descender: -353 }), 1.35);
+});
 
 test("rejects unrelated JSON without accepting it as a drawing", () => {
   assert.throws(() => validateDrawing('{"elements":[]}'));

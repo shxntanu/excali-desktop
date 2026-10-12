@@ -10,7 +10,22 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "Excali Desktop", "width": 1280, "height": 850, "minWidth": 700, "minHeight": 500 }],
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Excali Desktop",
+        "width": 1280,
+        "height": 850,
+        "minWidth": 700,
+        "minHeight": 500,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 16, "y": 22 },
+        "transparent": true,
+        "windowEffects": { "effects": ["sidebar"], "state": "followsWindowActiveState" }
+      }
+    ],
     "security": {
       "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost; worker-src 'self' blob:; frame-src 'none'; object-src 'none'"
     }

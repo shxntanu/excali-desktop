@@ -15,9 +15,13 @@ The installation step copies bundled Excalidraw fonts into `public/fonts`. They 
 
 ## Use
 
-- **New** creates a blank drawing.
-- **Open** uses a native file picker for `.excalidraw` files (and Excalidraw JSON).
-- **Save** writes back to the open file, or asks for a destination for a new drawing.
+Drawings live in `~/.excali-desktop`. The sidebar shows that folder as a tree of folders and drawings; click a drawing to open it.
+
+- **New** creates a blank drawing. **Save** puts a new drawing in the selected folder as "Untitled" (or "Untitled 2", …) and lets you name it right away.
+- The folder button next to **Drawings** creates a folder inside the selected one. Click **Drawings** to target the top level again.
+- Double-click a drawing or folder, or use its pencil button, to rename it. Enter confirms; Escape cancels.
+- **Open** uses a native file picker for `.excalidraw` files (and Excalidraw JSON) anywhere on disk. Files outside `~/.excali-desktop` stay where they are and are listed under **Other locations** in the sidebar so you can reopen them later; the × button removes one from the list without touching the file. Files saved with **Save as…** outside the drawings folder are listed there too.
+- **Save** writes back to the open file.
 - **Save as…** saves a copy at a new location and makes it the active document.
 - Cmd/Ctrl+N, Cmd/Ctrl+O, Cmd/Ctrl+S, and Cmd/Ctrl+Shift+S are supported.
 - The application asks you to save, discard, or cancel before replacing or closing a modified drawing, including when quitting.
@@ -26,7 +30,9 @@ Use Open for drawings and Excalidraw's Insert image tool for images. File drag-a
 
 Only one drawing is open at a time. Opening another drawing resets undo history. Images are embedded in saved files. Saves use a temporary file in the destination folder and replace the destination only after the complete write succeeds.
 
-Unsaved edits are debounced into a recovery snapshot in the OS application-data directory, approximately 800 ms after the last edit. A crash can lose edits made since the latest snapshot. At startup, the last recovery snapshot is restored as an unsaved document; save it to a location you choose. Recovery is removed after a successful save or an explicit discard. This is crash recovery, not version history.
+Everything the app stores lives in `~/.excali-desktop`: your drawings, plus a hidden `.app` folder with the recovery snapshot (`recovery.json`) and the list of files opened from other locations (`linked.json`). A recovery snapshot left by an earlier version in the OS application-data folder is moved there on first launch.
+
+Unsaved edits are debounced into the recovery snapshot approximately 800 ms after the last edit. A crash can lose edits made since the latest snapshot. At startup, the last recovery snapshot is restored as an unsaved document; save it to keep it. Recovery is removed after a successful save or an explicit discard. This is crash recovery, not version history.
 
 ## Build
 
@@ -57,6 +63,6 @@ The small tests cover invalid-document rejection, ordered recovery writes after 
 
 ## Boundaries
 
-No presentation tools, document version history, sync, or account system yet. Files modified externally are not watched; saving will replace the current file. The core editor and fonts are local; the production content-security policy blocks remote resources and embedded web pages.
+No presentation tools, document version history, sync, or account system yet. Deleting and moving drawings is done in Finder for now; the sidebar refreshes when the window regains focus. Files modified externally are not watched; saving will replace the current file. The core editor and fonts are local; the production content-security policy blocks remote resources and embedded web pages.
 
 Excalidraw and the other dependencies retain their respective licenses. This wrapper is not an official Excalidraw application.
