@@ -8,7 +8,7 @@
   <strong>A local, offline Excalidraw editor.</strong>
 </p>
 
-A local, offline Excalidraw editor built with Tauri 2, React, TypeScript, and Vite. Excalidraw is pinned to **0.18.1**; the npm and Cargo lockfiles are committed.
+A local, offline Excalidraw editor built with Tauri 2, React, TypeScript, and Vite.
 
 ## Run
 
