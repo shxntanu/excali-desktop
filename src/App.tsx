@@ -1,25 +1,50 @@
-import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Excalidraw, FONT_FAMILY, hashElementsVersion, loadFromBlob, MainMenu, serializeAsJSON } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI, ExcalidrawInitialDataState, ExcalidrawProps } from "@excalidraw/excalidraw/types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Menu, type MenuOptions } from "@tauri-apps/api/menu";
-import { createWriteQueue, fileName, isWithin, parentPath, remapPath, validateDrawing } from "./document";
+import { createWriteQueue, fileName, isWithin, parentPath, parseRecovery, remapPath, serializeRecovery, validateDrawing } from "./document";
 import { cssFamily, fontId, lineHeight, type SystemFont } from "./fonts";
 import { createDrawing, createFolder, deleteEntry, desktop, forgetDocument, listFonts, openDocument, readDrawing, readLinked, readRecovery, readWorkspace, renameEntry, saveDocument, writeRecovery, type Entry, type LinkedDocument, type Workspace } from "./storage";
 
 type Choice = "save" | "discard" | "cancel";
 
+// An open drawing. Async file flows read these fields after awaits, so they live outside React state.
+type Doc = {
+  id: number;
+  path: string | null;
+  dirty: boolean;
+  data: ExcalidrawInitialDataState | null;
+  api: ExcalidrawImperativeAPI | null;
+  fingerprint: string | null;
+  revision: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  // What recovery holds for this drawing; only set while it has unsaved edits.
+  snapshot: string | null;
+};
+
+let lastId = 0;
+
+function createDoc(data: ExcalidrawInitialDataState | null = null, path: string | null = null): Doc {
+  return { id: ++lastId, path, dirty: false, data, api: null, fingerprint: null, revision: 0, timer: null, snapshot: null };
+}
+
+const displayName = (path: string | null) => fileName(path).replace(/\.excalidraw$/, "");
+
 export default function App() {
   const [ready, setReady] = useState(false);
-  const [session, setSession] = useState<{ id: number; data: ExcalidrawInitialDataState | null }>({ id: 0, data: null });
-  const [path, setPath] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
+  const [, render] = useReducer((value: number) => value + 1, 0);
+  const [initial] = useState(createDoc);
+  const docs = useRef<Doc[]>([initial]);
+  const activeId = useRef(initial.id);
+  const focusPending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [recovered, setRecovered] = useState(false);
-  const [prompt, setPrompt] = useState(false);
+  // How many unsaved drawings were restored at startup, until the notice is dismissed.
+  const [recovered, setRecovered] = useState(0);
+  const [prompt, setPrompt] = useState("");
   const [sidebar, setSidebar] = useState(true);
   const theme = useSystemTheme();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -28,20 +53,16 @@ export default function App() {
   const [folder, setFolder] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [linked, setLinked] = useState<LinkedDocument[]>([]);
-  const api = useRef<ExcalidrawImperativeAPI | null>(null);
-  const currentPath = useRef<string | null>(null);
-  const dirtyRef = useRef(false);
   const busyRef = useRef(false);
-  const revision = useRef(0);
-  const fingerprint = useRef<string | null>(null);
-  const recoveryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queue = useRef(createWriteQueue());
   const resolvePrompt = useRef<((choice: Choice) => void) | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const editor = useRef<HTMLElement | null>(null);
   const handlers = useRef({
     new: () => {}, open: () => {}, save: (_as?: boolean) => {}, close: () => {},
     openEntry: (_path: string) => {}, forget: (_path: string) => {}, newFolder: (_parent?: string) => {}, rename: (_entry: Entry, _name: string | null) => {},
-    remove: (_entry: Entry) => {},
+    remove: (_entry: Entry) => {}, select: (_doc: Doc) => {}, cycle: (_step: number) => {}, selectNth: (_number: number) => {},
+    closeTab: (_doc?: Doc) => {}, closeOthers: (_doc: Doc) => {},
   });
   const mounted = useRef(true);
 
@@ -49,43 +70,53 @@ export default function App() {
     if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason));
   }
 
-  function markDirty(value: boolean) {
-    dirtyRef.current = value;
-    setDirty(value);
+  function current() {
+    return docs.current.find((doc) => doc.id === activeId.current) ?? docs.current[0];
   }
 
-  function stopTimer() {
-    if (recoveryTimer.current) clearTimeout(recoveryTimer.current);
-    recoveryTimer.current = null;
+  function activate(doc: Doc) {
+    if (doc.id === activeId.current) return;
+    activeId.current = doc.id;
+    focusPending.current = true;
+    render();
   }
 
-  function serialize() {
-    if (!api.current) throw new Error("The editor is still loading. Please try again.");
-    return serializeAsJSON(api.current.getSceneElements(), api.current.getAppState(), api.current.getFiles(), "local");
+  function stopTimer(doc: Doc) {
+    if (doc.timer) clearTimeout(doc.timer);
+    doc.timer = null;
   }
 
-  function persistRecovery() {
-    stopTimer();
-    if (!dirtyRef.current || !api.current) return Promise.resolve();
-    const data = JSON.stringify({ name: fileName(currentPath.current), drawing: serialize() });
+  function serialize(doc: Doc) {
+    if (!doc.api) throw new Error("The editor is still loading. Please try again.");
+    return serializeAsJSON(doc.api.getSceneElements(), doc.api.getAppState(), doc.api.getFiles(), "local");
+  }
+
+  // Recovery holds every drawing with unsaved edits, so it is rewritten whenever one of them changes.
+  function writeSnapshots() {
+    const data = serializeRecovery(docs.current.flatMap((doc) => doc.snapshot ? [{ name: fileName(doc.path), drawing: doc.snapshot }] : []));
     return queue.current(() => writeRecovery(data));
   }
 
-  async function clearRecovery() {
-    stopTimer();
-    await queue.current(() => writeRecovery(null));
+  async function persistRecovery(targets: Doc[]) {
+    for (const doc of targets) {
+      stopTimer(doc);
+      // A restored drawing keeps its recovered snapshot until its editor has loaded.
+      if (!doc.dirty) doc.snapshot = null;
+      else if (doc.api) doc.snapshot = serialize(doc);
+    }
+    await writeSnapshots();
   }
 
-  const onChange: NonNullable<ExcalidrawProps["onChange"]> = (elements, appState) => {
+  const onChange = (doc: Doc): NonNullable<ExcalidrawProps["onChange"]> => (elements, appState) => {
     // Selection and panning are not document edits. No scene copies in React state.
     const next = `${hashElementsVersion(elements)}:${appState.viewBackgroundColor}:${appState.gridSize}:${appState.gridStep}:${appState.gridModeEnabled}`;
-    if (fingerprint.current === null) { fingerprint.current = next; return; }
-    if (next === fingerprint.current) return;
-    fingerprint.current = next;
-    revision.current += 1;
-    if (!dirtyRef.current) markDirty(true);
-    stopTimer();
-    recoveryTimer.current = setTimeout(() => { void persistRecovery().catch(report); }, 800);
+    if (doc.fingerprint === null) { doc.fingerprint = next; return; }
+    if (next === doc.fingerprint) return;
+    doc.fingerprint = next;
+    doc.revision += 1;
+    if (!doc.dirty) { doc.dirty = true; render(); }
+    stopTimer(doc);
+    doc.timer = setTimeout(() => { void persistRecovery([doc]).catch(report); }, 800);
   };
 
   async function refresh() {
@@ -105,50 +136,78 @@ export default function App() {
     });
   }
 
-  async function save(as = false): Promise<boolean> {
-    const savedRevision = revision.current;
-    const data = serialize();
-    const target = !as && !currentPath.current && workspace ? folder ?? workspace.root : null;
-    const destination = target ? await createDrawing(target, data) : await saveDocument(as ? null : currentPath.current, data);
+  async function save(doc: Doc, as = false): Promise<boolean> {
+    const savedRevision = doc.revision;
+    const data = serialize(doc);
+    const target = !as && !doc.path && workspace ? folder ?? workspace.root : null;
+    const destination = target ? await createDrawing(target, data) : await saveDocument(as ? null : doc.path, data);
     if (!destination) return false;
-    currentPath.current = destination;
-    setPath(destination);
-    setRecovered(false);
+    doc.path = destination;
+    if (doc.revision === savedRevision) doc.dirty = false;
+    render();
+    setRecovered(0);
     if (workspace) reveal(destination, workspace.root);
     if (target) setRenaming(destination);
     void refresh();
-    if (revision.current === savedRevision) {
-      markDirty(false);
-      // The drawing was saved even if removing recovery fails.
-      await clearRecovery().catch(report);
-    } else {
-      await persistRecovery().catch(report);
-    }
+    // The drawing was saved even if updating recovery fails.
+    await persistRecovery([doc]).catch(report);
     return true;
   }
 
-  async function canLeave(): Promise<boolean> {
-    if (!dirtyRef.current) return true;
-    const choice = await new Promise<Choice>((resolve) => { resolvePrompt.current = resolve; setPrompt(true); });
+  async function canLeave(doc: Doc): Promise<boolean> {
+    if (!doc.dirty) return true;
+    activate(doc);
+    setPrompt(displayName(doc.path));
+    dialog.current?.showModal();
+    const choice = await new Promise<Choice>((resolve) => { resolvePrompt.current = resolve; });
     if (choice === "cancel") return false;
     if (choice === "save") {
-      if (!await save()) return false;
+      if (!await save(doc)) return false;
       // Edits made while the native save dialog was open also need protection.
-      if (dirtyRef.current) return canLeave();
+      if (doc.dirty) return canLeave(doc);
     }
     return true;
   }
 
-  async function replaceDocument(data: ExcalidrawInitialDataState | null, destination: string | null) {
-    await clearRecovery();
-    api.current = null;
-    fingerprint.current = null;
-    revision.current = 0;
-    currentPath.current = destination;
-    setPath(destination);
-    markDirty(false);
-    setRecovered(false);
-    setSession((previous) => ({ id: previous.id + 1, data }));
+  function addDoc(data: ExcalidrawInitialDataState | null, path: string | null) {
+    const list = docs.current;
+    const index = list.indexOf(current());
+    const active = list[index];
+    // An untouched blank tab is replaced rather than left behind.
+    const replace = !active.path && !active.dirty && active.revision === 0;
+    if (replace) stopTimer(active);
+    const doc = createDoc(data, path);
+    list.splice(replace ? index : index + 1, replace ? 1 : 0, doc);
+    activate(doc);
+  }
+
+  // Shows a drawing, switching to its tab when it is already open.
+  async function show(path: string, text?: string) {
+    // The browser preview only knows file names, which need not be unique.
+    const open = desktop && docs.current.find((doc) => doc.path === path);
+    if (open) return activate(open);
+    text ??= await readDrawing(path);
+    validateDrawing(text);
+    addDoc(await loadFromBlob(new Blob([text], { type: "application/json" }), null, null), path);
+  }
+
+  function drop(doc: Doc) {
+    stopTimer(doc);
+    const list = docs.current;
+    const index = list.indexOf(doc);
+    if (index < 0) return;
+    list.splice(index, 1);
+    if (!list.length) list.push(createDoc());
+    if (doc.id === activeId.current) activate(list[Math.min(index, list.length - 1)]);
+    else render();
+  }
+
+  async function closeTabs(targets: Doc[]) {
+    for (const doc of targets) {
+      if (!await canLeave(doc)) break;
+      drop(doc);
+    }
+    await writeSnapshots();
   }
 
   async function run(action: () => Promise<unknown>) {
@@ -161,24 +220,21 @@ export default function App() {
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   }
 
+  function select(doc: Doc | undefined) {
+    if (doc && ready && !busyRef.current) activate(doc);
+  }
+
   handlers.current = {
-    new: () => { void run(async () => { if (await canLeave()) await replaceDocument(null, null); }); },
+    new: () => { void run(async () => addDoc(null, null)); },
     open: () => { void run(async () => {
       const file = await openDocument();
       if (!file) return;
-      validateDrawing(file.data);
-      const data = await loadFromBlob(new Blob([file.data], { type: "application/json" }), null, null);
-      if (await canLeave()) await replaceDocument(data, file.path);
+      await show(file.path, file.data);
       await refresh();
     }); },
-    save: (as = false) => { void run(() => save(as)); },
+    save: (as = false) => { void run(() => save(current(), as)); },
     openEntry: (target: string) => { void run(async () => {
-      if (target === currentPath.current) return;
-      const text = await readDrawing(target);
-      validateDrawing(text);
-      const data = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
-      if (!await canLeave()) return;
-      await replaceDocument(data, target);
+      await show(target);
       if (workspace && isWithin(target, workspace.root)) setFolder(parentPath(target));
     }); },
     forget: (target: string) => { void run(async () => {
@@ -194,13 +250,16 @@ export default function App() {
     }); },
     remove: (entry: Entry) => { void run(async () => {
       await deleteEntry(entry.path);
-      if (currentPath.current && isWithin(currentPath.current, entry.path)) {
-        // Unsaved edits stay on screen as an untitled drawing instead of disappearing with the file.
-        if (dirtyRef.current) { currentPath.current = null; setPath(null); await persistRecovery(); }
-        else await replaceDocument(null, null);
+      for (const doc of [...docs.current]) {
+        if (!doc.path || !isWithin(doc.path, entry.path)) continue;
+        // Unsaved edits stay open as an untitled drawing instead of disappearing with the file.
+        if (doc.dirty) doc.path = null;
+        else drop(doc);
       }
+      render();
       setFolder((value) => value && isWithin(value, entry.path) ? null : value);
       setExpanded((previous) => new Set([...previous].filter((value) => !isWithin(value, entry.path))));
+      await writeSnapshots();
       await refresh();
     }); },
     rename: (entry: Entry, name: string | null) => {
@@ -209,29 +268,35 @@ export default function App() {
       void run(async () => {
         const next = await renameEntry(entry.path, name);
         const move = (value: string) => remapPath(value, entry.path, next);
-        if (currentPath.current) { currentPath.current = move(currentPath.current); setPath(currentPath.current); }
+        for (const doc of docs.current) if (doc.path) doc.path = move(doc.path);
+        render();
         setFolder((value) => value && move(value));
         setExpanded((previous) => new Set([...previous].map(move)));
         await refresh();
       });
     },
+    select,
+    cycle: (step: number) => {
+      const list = docs.current;
+      select(list[(list.indexOf(current()) + step + list.length) % list.length]);
+    },
+    // Like browsers, the ninth shortcut always goes to the last tab.
+    selectNth: (number: number) => select(number === 9 ? docs.current.at(-1) : docs.current[number - 1]),
+    closeTab: (doc = current()) => { void run(() => closeTabs([doc])); },
+    closeOthers: (doc: Doc) => { void run(() => closeTabs(docs.current.filter((other) => other !== doc))); },
     close: () => { void run(async () => {
-      if (!await canLeave()) return;
-      await clearRecovery();
+      for (const doc of [...docs.current]) if (!await canLeave(doc)) return;
+      for (const doc of docs.current) stopTimer(doc);
+      await queue.current(() => writeRecovery(null));
       if (desktop) await invoke("close_app");
     }); },
   };
 
   function answer(choice: Choice) {
     dialog.current?.close();
-    setPrompt(false);
     resolvePrompt.current?.(choice);
     resolvePrompt.current = null;
   }
-
-  useEffect(() => {
-    if (prompt) dialog.current?.showModal();
-  }, [prompt]);
 
   useEffect(() => {
     mounted.current = true;
@@ -243,13 +308,16 @@ export default function App() {
         const saved = await readRecovery();
         await fonts;
         if (saved) {
-          const recovery = JSON.parse(saved);
-          validateDrawing(recovery.drawing);
-          const data = await loadFromBlob(new Blob([recovery.drawing], { type: "application/json" }), null, null);
-          if (cancelled) return;
-          setSession({ id: 1, data });
-          markDirty(true);
-          setRecovered(true);
+          const restored = await Promise.all(parseRecovery(saved).map(async ({ drawing }) => {
+            const doc = createDoc(await loadFromBlob(new Blob([drawing], { type: "application/json" }), null, null));
+            doc.dirty = true;
+            doc.snapshot = drawing;
+            return doc;
+          }));
+          if (cancelled || !restored.length) return;
+          docs.current = restored;
+          activeId.current = restored[0].id;
+          setRecovered(restored.length);
         }
       } catch (reason) { report(reason); }
       finally { if (!cancelled) setReady(true); }
@@ -257,24 +325,40 @@ export default function App() {
     // Pick up drawings added or moved in Finder while the app was in the background.
     void refresh();
     window.addEventListener("focus", refresh);
-    return () => { cancelled = true; mounted.current = false; stopTimer(); window.removeEventListener("focus", refresh); };
+    return () => {
+      cancelled = true;
+      mounted.current = false;
+      for (const doc of docs.current) stopTimer(doc);
+      window.removeEventListener("focus", refresh);
+    };
   }, []);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
+      if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === "Tab") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        handlers.current.cycle(event.shiftKey ? -1 : 1);
+        return;
+      }
       if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
       const key = event.key.toLowerCase();
-      if (!["n", "o", "s"].includes(key)) return;
+      const tab = !event.shiftKey && /^[1-9]$/.test(key);
+      if (!tab && !["n", "o", "s"].includes(key)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
+      if (tab) handlers.current.selectNth(Number(key));
       if (key === "s") handlers.current.save(event.shiftKey);
       if (key === "o") handlers.current.open();
       if (key === "n") handlers.current.new();
     };
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (dirtyRef.current) { event.preventDefault(); event.returnValue = ""; }
+      if (docs.current.some((doc) => doc.dirty)) { event.preventDefault(); event.returnValue = ""; }
     };
-    const visibility = () => { if (document.visibilityState === "hidden") void persistRecovery().catch(report); };
+    const visibility = () => {
+      const pending = docs.current.filter((doc) => doc.timer);
+      if (document.visibilityState === "hidden" && pending.length) void persistRecovery(pending).catch(report);
+    };
     // The webview's Reload / Inspect Element menu is only useful in text fields (for copy and paste).
     const contextMenu = (event: MouseEvent) => {
       if (desktop && !(event.target as Element).closest?.("input, textarea, [contenteditable]")) event.preventDefault();
@@ -283,19 +367,23 @@ export default function App() {
     window.addEventListener("contextmenu", contextMenu);
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("visibilitychange", visibility);
-    let unlisten: (() => void) | undefined;
-    let unlistenQuit: (() => void) | undefined;
+    const stops: (() => void)[] = [];
     let disposed = false;
-    if (desktop) void getCurrentWindow().onCloseRequested((event) => {
-      event.preventDefault();
-      handlers.current.close();
-    }).then((stop) => { if (disposed) stop(); else unlisten = stop; }).catch(report);
-    if (desktop) void listen("request-close", () => handlers.current.close())
-      .then((stop) => { if (disposed) stop(); else unlistenQuit = stop; }).catch(report);
+    const keep = (subscription: Promise<() => void>) => {
+      void subscription.then((stop) => { if (disposed) stop(); else stops.push(stop); }).catch(report);
+    };
+    if (desktop) {
+      keep(getCurrentWindow().onCloseRequested((event) => {
+        event.preventDefault();
+        handlers.current.close();
+      }));
+      keep(listen("request-close", () => handlers.current.close()));
+      // Cmd/Ctrl+W comes from the native menu, which would otherwise close the window.
+      keep(listen("close-tab", () => handlers.current.closeTab()));
+    }
     return () => {
       disposed = true;
-      unlisten?.();
-      unlistenQuit?.();
+      for (const stop of stops) stop();
       window.removeEventListener("keydown", keydown, true);
       window.removeEventListener("contextmenu", contextMenu);
       window.removeEventListener("beforeunload", beforeUnload);
@@ -303,17 +391,27 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const title = `${dirty ? "● " : ""}${fileName(path).replace(/\.excalidraw$/, "")} — Excali Desktop`;
-    document.title = title;
-    if (desktop) void getCurrentWindow().setTitle(title).catch(report);
-  }, [path, dirty]);
+  const active = current();
+  const path = active.path;
+  const dirty = active.dirty;
+  const title = displayName(path);
 
-  const title = fileName(path).replace(/\.excalidraw$/, "");
+  useEffect(() => {
+    const text = `${dirty ? "● " : ""}${title} — Excali Desktop`;
+    document.title = text;
+    if (desktop) void getCurrentWindow().setTitle(text).catch(report);
+  }, [title, dirty]);
+
+  useEffect(() => {
+    // The editor is inert while busy, so focus waits until the file operation is done.
+    if (busy || !focusPending.current) return;
+    focusPending.current = false;
+    active.api?.refresh();
+    editor.current?.querySelector<HTMLElement>(".canvas.active .excalidraw-container")?.focus();
+  });
+
   const disabled = busy || !ready;
-  const parent = path && parentPath(path);
-  const location = parent && workspace && parent !== workspace.root && isWithin(parent, workspace.root)
-    ? parent.slice(workspace.root.length + 1).split(/[\\/]/).join(" / ") : null;
+  const edited = new Set(docs.current.flatMap((doc) => doc.dirty && doc.path ? [doc.path] : []));
   const toggle = <button className="icon-button" onClick={() => setSidebar(!sidebar)}
     aria-label={sidebar ? "Hide sidebar" : "Show sidebar"} aria-expanded={sidebar} title={sidebar ? "Hide sidebar" : "Show sidebar"}><Icon name="sidebar" /></button>;
   return <div className={`app ${mac ? "mac" : ""}`} data-theme={theme}>
@@ -334,7 +432,7 @@ export default function App() {
           <div className="sidebar-item" title={path || undefined}><Icon name="file" /><span className="label">{title}</span>{dirty && <span className="dirty-dot" aria-label="Unsaved changes" />}</div>
         </div>}
         {workspace && <Tree entries={workspace.entries} depth={0} tree={{
-          path, dirty, expanded, folder, renaming, disabled,
+          path, edited, expanded, folder, renaming, disabled,
           open: (entry) => {
             if (!entry.folder) return handlers.current.openEntry(entry.path);
             setFolder(entry.path);
@@ -354,17 +452,17 @@ export default function App() {
         {linked.length > 0 && <>
           <h2 className="sidebar-heading">Other locations</h2>
           {linked.map((item) => {
-            const active = item.path === path;
-            return <div key={item.path} className={`tree-row ${active ? "active" : ""} ${item.missing ? "missing" : ""}`} style={{ "--depth": 0 } as CSSProperties}>
-              <button className="sidebar-item" role="treeitem" aria-current={active || undefined} disabled={disabled}
+            const isActive = item.path === path;
+            return <div key={item.path} className={`tree-row ${isActive ? "active" : ""} ${item.missing ? "missing" : ""}`} style={{ "--depth": 0 } as CSSProperties}>
+              <button className="sidebar-item" role="treeitem" aria-current={isActive || undefined} disabled={disabled}
                 title={item.missing ? `Not found: ${item.path}` : item.path} onClick={() => handlers.current.openEntry(item.path)}
                 onContextMenu={() => { if (!disabled) showMenu([
-                  { text: "Open", enabled: !active && !item.missing, action: () => handlers.current.openEntry(item.path) },
+                  { text: "Open", enabled: !isActive && !item.missing, action: () => handlers.current.openEntry(item.path) },
                   { item: "Separator" },
                   { text: "Remove from Sidebar", action: () => handlers.current.forget(item.path) },
                 ], report); }}>
                 <Icon name="file" /><span className="label">{item.name}</span>
-                {active && dirty ? <span className="dirty-dot" aria-label="Unsaved changes" /> : <span className="hint">{item.location}</span>}
+                {edited.has(item.path) ? <span className="dirty-dot" aria-label="Unsaved changes" /> : <span className="hint">{item.location}</span>}
               </button>
               <button className="icon-button rename" disabled={disabled} onClick={() => handlers.current.forget(item.path)}
                 aria-label={`Remove ${item.name} from sidebar`} title="Remove from sidebar"><Icon name="close" /></button>
@@ -376,32 +474,51 @@ export default function App() {
     <div className="main">
       <header className="titlebar" data-tauri-drag-region>
         {!sidebar && toggle}
-        <div className="titlebar-title" data-tauri-drag-region title={path || undefined}>
-          {location && <span className="titlebar-folder" data-tauri-drag-region>{location} / </span>}
-          {title}{dirty && <span className="titlebar-edited" data-tauri-drag-region> — Edited</span>}
+        <div className="tabs" role="tablist" aria-label="Open drawings" data-tauri-drag-region>
+          {docs.current.map((doc) => {
+            const selected = doc === active;
+            const name = displayName(doc.path);
+            return <div key={doc.id} className={`tab ${selected ? "active" : ""} ${doc.dirty ? "dirty" : ""}`} title={doc.path || name}
+              onAuxClick={(event) => { if (event.button === 1 && !disabled) handlers.current.closeTab(doc); }}
+              onContextMenu={() => { if (!disabled) showMenu([
+                { text: "Close Tab", action: () => handlers.current.closeTab(doc) },
+                { text: "Close Other Tabs", enabled: docs.current.length > 1, action: () => handlers.current.closeOthers(doc) },
+              ], report); }}>
+              <button className="tab-label" role="tab" aria-selected={selected} disabled={disabled} onClick={() => handlers.current.select(doc)}>
+                <span className="label">{name}</span>
+              </button>
+              {doc.dirty && <span className="dirty-dot" aria-label="Unsaved changes" />}
+              <button className="icon-button tab-close" disabled={disabled} onClick={() => handlers.current.closeTab(doc)}
+                aria-label={`Close ${name}`} title={desktop ? `Close tab (${command}W)` : "Close tab"}><Icon name="close" /></button>
+            </div>;
+          })}
+          <button className="icon-button" disabled={disabled} onClick={() => handlers.current.new()} aria-label="New drawing" title={`New drawing (${command}N)`}><Icon name="plus" /></button>
         </div>
       </header>
-      <main className="editor" aria-label="Drawing editor" aria-busy={busy}
-        ref={(element) => { if (element) element.inert = busy; }}
+      <main className="editor" aria-label="Drawing editor" aria-busy={busy} ref={(element) => { editor.current = element; if (element) element.inert = busy; }}
         onDropCapture={(event) => {
           if (!event.dataTransfer.files.length) return;
           event.preventDefault();
           event.stopPropagation();
           setError(`Use Open (${command}O) to open drawings.`);
         }}>
-        {ready && <Excalidraw key={session.id} initialData={session.data} excalidrawAPI={(value) => { api.current = value; }} onChange={onChange} theme={theme}
-          UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false, export: { saveFileToDisk: false }, toggleTheme: false } }}
-          renderTopRightUI={() => null}>
-          <MainMenu><MainMenu.DefaultItems.Export /><MainMenu.DefaultItems.ClearCanvas /><MainMenu.DefaultItems.ChangeCanvasBackground /></MainMenu>
-        </Excalidraw>}
-        {(error || recovered) && <div className={`toast ${error ? "error" : ""}`} role={error ? "alert" : "status"}>
-          <span>{error || "Restored your unsaved drawing."}</span>
-          <button className="icon-button" onClick={() => error ? setError(null) : setRecovered(false)} aria-label="Dismiss"><Icon name="close" /></button>
+        {/* Every open drawing keeps its editor, and with it its undo history; only the active one is shown. */}
+        {ready && docs.current.map((doc) => <div key={doc.id} className={`canvas ${doc === active ? "active" : ""}`}
+          ref={(element) => { if (element) element.inert = doc !== active; }}>
+          <Excalidraw initialData={doc.data} excalidrawAPI={(value) => { doc.api = value; }} onChange={onChange(doc)} theme={theme}
+            UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false, export: { saveFileToDisk: false }, toggleTheme: false } }}
+            renderTopRightUI={() => null}>
+            <MainMenu><MainMenu.DefaultItems.Export /><MainMenu.DefaultItems.ClearCanvas /><MainMenu.DefaultItems.ChangeCanvasBackground /></MainMenu>
+          </Excalidraw>
+        </div>)}
+        {(error || recovered > 0) && <div className={`toast ${error ? "error" : ""}`} role={error ? "alert" : "status"}>
+          <span>{error || (recovered > 1 ? `Restored ${recovered} unsaved drawings.` : "Restored your unsaved drawing.")}</span>
+          <button className="icon-button" onClick={() => error ? setError(null) : setRecovered(0)} aria-label="Dismiss"><Icon name="close" /></button>
         </div>}
       </main>
     </div>
     <dialog ref={dialog} className="unsaved-dialog" onCancel={(event) => { event.preventDefault(); answer("cancel"); }} aria-labelledby="unsaved-title">
-      <h2 id="unsaved-title">Save changes to “{title}”?</h2>
+      <h2 id="unsaved-title">Save changes to “{prompt}”?</h2>
       <div className="dialog-actions"><button onClick={() => answer("discard")}>Don’t save</button><span /><button onClick={() => answer("cancel")} autoFocus>Cancel</button><button className="primary" onClick={() => answer("save")}>Save</button></div>
     </dialog>
   </div>;
@@ -436,7 +553,7 @@ function SidebarItem({ icon, label, shortcut, disabled, onClick }: { icon: IconN
 }
 
 type TreeContext = {
-  path: string | null; dirty: boolean; expanded: Set<string>; folder: string | null; renaming: string | null; disabled: boolean;
+  path: string | null; edited: Set<string>; expanded: Set<string>; folder: string | null; renaming: string | null; disabled: boolean;
   open: (entry: Entry) => void; startRename: (entry: Entry) => void; rename: (entry: Entry, name: string | null) => void;
   menu: (entry: Entry) => void;
 };
@@ -454,7 +571,7 @@ function Tree({ entries, depth, tree }: { entries: Entry[]; depth: number; tree:
           onContextMenu={() => { if (!tree.disabled) tree.menu(entry); }}>
           <button className="sidebar-item" role="treeitem" aria-expanded={entry.folder ? expanded : undefined} aria-current={active || undefined}
             disabled={tree.disabled} title={entry.name} onClick={() => tree.open(entry)} onDoubleClick={() => tree.startRename(entry)}>
-            <Icon name={icon} /><span className="label">{entry.name}</span>{active && tree.dirty && <span className="dirty-dot" aria-label="Unsaved changes" />}
+            <Icon name={icon} /><span className="label">{entry.name}</span>{tree.edited.has(entry.path) && <span className="dirty-dot" aria-label="Unsaved changes" />}
           </button>
           <button className="icon-button rename" disabled={tree.disabled} onClick={() => tree.startRename(entry)} aria-label={`Rename ${entry.name}`} title="Rename"><Icon name="pencil" /></button>
         </div>}
@@ -483,7 +600,7 @@ function RenameField({ name, onDone }: { name: string; onDone: (name: string | n
     }} />;
 }
 
-type IconName = "new" | "open" | "save" | "saveAs" | "file" | "sidebar" | "close" | "folder" | "folderPlus" | "pencil";
+type IconName = "new" | "open" | "save" | "saveAs" | "file" | "sidebar" | "close" | "folder" | "folderPlus" | "pencil" | "plus";
 
 function Icon({ name }: { name: IconName }) {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -497,6 +614,7 @@ function Icon({ name }: { name: IconName }) {
     {name === "close" && <path d="M18 6 6 18M6 6l12 12" />}    {(name === "folder" || name === "folderPlus") && <path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2" />}
     {name === "folderPlus" && <path d="M12 10v6M9 13h6" />}
     {name === "pencil" && <path d="M4 20h4L18.5 9.5a2.83 2.83 0 0 0-4-4L4 16v4M13.5 6.5l4 4" />}
+    {name === "plus" && <path d="M12 5v14M5 12h14" />}
   </svg>;
 }
 

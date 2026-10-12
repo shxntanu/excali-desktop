@@ -9,7 +9,13 @@ use std::{
         Mutex,
     },
 };
-use tauri::{Emitter, Manager};
+use tauri::{
+    menu::{
+        AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID,
+        WINDOW_SUBMENU_ID,
+    },
+    Emitter, Manager,
+};
 use tauri_plugin_dialog::DialogExt;
 
 #[derive(Default)]
@@ -564,12 +570,117 @@ fn close_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+// Tauri's default menu, except that Cmd/Ctrl+W closes the current tab and Close Window moves to Shift+Cmd/Ctrl+W.
+fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let info = app.package_info();
+    let about = AboutMetadata {
+        name: Some(info.name.clone()),
+        version: Some(info.version.to_string()),
+        copyright: app.config().bundle.copyright.clone(),
+        authors: app.config().bundle.publisher.clone().map(|p| vec![p]),
+        ..Default::default()
+    };
+    Menu::with_items(
+        app,
+        &[
+            #[cfg(target_os = "macos")]
+            &Submenu::with_items(
+                app,
+                info.name.clone(),
+                true,
+                &[
+                    &PredefinedMenuItem::about(app, None, Some(about.clone()))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::services(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, None)?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::quit(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "File",
+                true,
+                &[
+                    &MenuItem::with_id(app, CLOSE_TAB, "Close Tab", true, Some("CmdOrCtrl+W"))?,
+                    &MenuItem::with_id(
+                        app,
+                        CLOSE_WINDOW,
+                        "Close Window",
+                        true,
+                        Some("CmdOrCtrl+Shift+W"),
+                    )?,
+                    #[cfg(not(target_os = "macos"))]
+                    &PredefinedMenuItem::quit(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
+                ],
+            )?,
+            #[cfg(target_os = "macos")]
+            &Submenu::with_items(
+                app,
+                "View",
+                true,
+                &[&PredefinedMenuItem::fullscreen(app, None)?],
+            )?,
+            &Submenu::with_id_and_items(
+                app,
+                WINDOW_SUBMENU_ID,
+                "Window",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, None)?,
+                    &PredefinedMenuItem::maximize(app, None)?,
+                ],
+            )?,
+            &Submenu::with_id_and_items(
+                app,
+                HELP_SUBMENU_ID,
+                "Help",
+                true,
+                &[
+                    #[cfg(not(target_os = "macos"))]
+                    &PredefinedMenuItem::about(app, None, Some(about))?,
+                ],
+            )?,
+        ],
+    )
+}
+
+const CLOSE_TAB: &str = "close-tab";
+const CLOSE_WINDOW: &str = "close-window";
+
 pub fn run() {
     tauri::Builder::default()
         .manage(Documents::default())
         .manage(Closing::default())
         .manage(Linked::default())
         .plugin(tauri_plugin_dialog::init())
+        .menu(app_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == CLOSE_TAB {
+                let _ = app.emit("close-tab", ());
+            } else if event.id() == CLOSE_WINDOW {
+                // Closing goes through the window's close request, which asks about unsaved drawings.
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.close();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             open_document,
             save_document,

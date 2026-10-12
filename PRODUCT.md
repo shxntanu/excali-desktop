@@ -9,7 +9,7 @@ web
 The interface is a React webview inside a Tauri desktop application.
 
 ## Product Purpose
-A fast, offline Excalidraw wrapper that opens and saves local drawings, one at a time. Presentation tools and version history are later milestones.
+A fast, offline Excalidraw wrapper that opens and saves local drawings, several at once in tabs. Presentation tools and version history are later milestones.
 
 ## Users
 People drawing and editing diagrams on their desktop who need local file persistence.

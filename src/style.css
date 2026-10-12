@@ -82,11 +82,27 @@ kbd { font: inherit; font-size: 12px; color: var(--faint); }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--canvas); }
 .titlebar { height: var(--titlebar-height); flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line); position: relative; }
 .app.mac:not(:has(.sidebar)) .titlebar { padding-left: 84px; }
-.titlebar-title { position: absolute; left: 50%; transform: translateX(-50%); max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
-.titlebar-folder { font-weight: 400; color: var(--muted); }
-.titlebar-edited { font-weight: 400; color: var(--muted); }
+.tabs { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { position: relative; flex: 0 1 220px; min-width: 96px; height: 30px; display: flex; border-radius: 8px; color: var(--muted); }
+.tab:hover { background: var(--hover); color: var(--text); }
+.tab.active { background: var(--active); color: var(--active-text); font-weight: 500; }
+.tab-label { flex: 1; min-width: 0; padding: 0 32px 0 12px; border: 0; border-radius: inherit; background: transparent; font-size: 13px; font-weight: inherit; text-align: left; }
+.tab-label .label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-label:disabled { cursor: default; }
+.tab-close { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; opacity: 0; color: inherit; }
+.tab-close svg { width: 14px; height: 14px; }
+.tab.active .tab-close, .tab:hover .tab-close, .tab-close:focus-visible { opacity: 1; }
+.tab .dirty-dot { position: absolute; top: 11.5px; right: 11.5px; pointer-events: none; }
+.tab.dirty .tab-close { opacity: 0; }
+.tab.dirty:hover .tab-close, .tab.dirty .tab-close:focus-visible { opacity: 1; }
+.tab.dirty:hover .dirty-dot, .tab:has(.tab-close:focus-visible) .dirty-dot { display: none; }
+.tabs > .icon-button { flex-shrink: 0; }
 
 .editor { flex: 1; min-height: 0; position: relative; }
+/* Hidden editors keep their size so they need no relayout when shown again. */
+.canvas { position: absolute; inset: 0; }
+.canvas:not(.active) { visibility: hidden; }
 .editor .excalidraw { --ui-font: Assistant, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
 .toast { position: absolute; z-index: 1000; left: 50%; bottom: 64px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; max-width: min(520px, calc(100% - 32px)); padding: 8px 8px 8px 16px; border-radius: 10px; background: var(--island); box-shadow: var(--shadow); font-size: 14px; }
