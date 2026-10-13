@@ -1214,3 +1214,42 @@ kbd {
   min-width: 0;
   flex: 1;
 }
+
+.slide-guides {
+  position: fixed;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+.slide-safe-area {
+  position: absolute;
+  border: 1px dashed var(--primary);
+}
+.slide-center {
+  position: absolute;
+  opacity: 0.5;
+}
+.slide-center.vertical {
+  border-left: 1px dashed var(--primary);
+}
+.slide-center.horizontal {
+  border-top: 1px dashed var(--primary);
+}
+.slide-alignment summary {
+  font-size: 12px;
+  cursor: pointer;
+}
+.slide-align-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 8px;
+}
+.slide-align-buttons button {
+  flex: 1 0 28%;
+  padding: 0 6px;
+  font-size: 12px;
+}
+.slide-alignment .hint {
+  margin-top: 6px;
+}

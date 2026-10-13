@@ -13,6 +13,7 @@ import {
   CaptureUpdateAction,
   convertToExcalidrawElements,
   exportToCanvas,
+  getCommonBounds,
   hashElementsVersion,
   newElementWith,
 } from "@excalidraw/excalidraw";
@@ -27,7 +28,13 @@ import type {
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 import { Icon } from "./icons";
-import { duplicateSlideElements } from "./slide-authoring";
+import {
+  duplicateSlideElements,
+  layoutElements,
+  safeArea,
+  slideLayouts,
+  type SlideLayout,
+} from "./slide-authoring";
 import {
   BUILD_DURATION,
   buildAppearance,
@@ -267,6 +274,7 @@ function Panel({
     width: number,
     height: number,
     after: Slide<ExcalidrawElement> | undefined = current,
+    layout: SlideLayout = "blank",
   ) {
     const state = api.getAppState();
     const live = api.getSceneElements();
@@ -276,6 +284,10 @@ function Panel({
     const y =
       after?.frame.y ??
       state.height / 2 / state.zoom.value - state.scrollY - height / 2;
+    const content = convertToExcalidrawElements(
+      layoutElements(layout, { x, y, width, height }),
+      { regenerateIds: false },
+    );
     const [created] = convertToExcalidrawElements([
       {
         type: "frame",
@@ -308,6 +320,9 @@ function Panel({
                 }),
               })
             : element,
+        ),
+        ...content.map((element) =>
+          newElementWith(element, { frameId: frame.id }),
         ),
         newElementWith(frame, {
           customData: withSlide(frame.customData, { order }),
@@ -342,17 +357,15 @@ function Panel({
     });
     api.updateScene({
       elements: [
-        ...api
-          .getSceneElementsIncludingDeleted()
-          .map((element) =>
-            orders.has(element.id)
-              ? newElementWith(element, {
-                  customData: withSlide(element.customData, {
-                    order: orders.get(element.id)!,
-                  }),
-                })
-              : element,
-          ),
+        ...api.getSceneElementsIncludingDeleted().map((element) =>
+          orders.has(element.id)
+            ? newElementWith(element, {
+                customData: withSlide(element.customData, {
+                  order: orders.get(element.id)!,
+                }),
+              })
+            : element,
+        ),
         ...copies,
       ],
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
@@ -415,7 +428,9 @@ function Panel({
           ? { width: current.frame.width, height: current.frame.height }
           : undefined
       }
-      onCreate={createSlide}
+      onCreate={(width, height, layout) =>
+        createSlide(width, height, current, layout)
+      }
       onFreeform={() => api.setActiveTool({ type: "frame" })}
     />
   );
@@ -582,6 +597,7 @@ function Inspector({
   const { settings } = slide;
   const [preview, setPreview] = useState(false);
   const [badges, setBadges] = useState(true);
+  const [guides, setGuides] = useState(false);
   const speed = speeds.reduce((best, option) =>
     Math.abs(option.duration - settings.duration) <
     Math.abs(best.duration - settings.duration)
@@ -686,6 +702,16 @@ function Inspector({
         </button>
       </div>
       <FrameSize slide={slide} api={api} />
+      <label className="inspector-check">
+        <input
+          type="checkbox"
+          checked={guides}
+          onChange={(event) => setGuides(event.target.checked)}
+        />
+        Show safe margins and center guides
+      </label>
+      {guides && <SlideGuides slide={slide} state={scene.appState} />}
+      <SlideAlignment slide={slide} selected={selected} api={api} />
       <Field label="Transition">
         <Segmented
           value={settings.transition}
@@ -1061,7 +1087,7 @@ function NewSlide({
   currentSize,
 }: {
   currentSize?: { width: number; height: number };
-  onCreate: (width: number, height: number) => void;
+  onCreate: (width: number, height: number, layout: SlideLayout) => void;
   onFreeform: () => void;
 }) {
   const [size, setSize] = useState(() => {
@@ -1073,6 +1099,7 @@ function NewSlide({
     return { width: 1600, height: 900 };
   });
   const [open, setOpen] = useState(false);
+  const [layout, setLayout] = useState<SlideLayout>("blank");
   const [preset, setPreset] = useState(
     () =>
       slideSizes.find(
@@ -1096,7 +1123,7 @@ function NewSlide({
     try {
       localStorage.setItem(SIZE_KEY, JSON.stringify(size));
     } catch {}
-    onCreate(size.width, size.height);
+    onCreate(size.width, size.height, layout);
     setOpen(false);
   }
   return (
@@ -1121,6 +1148,21 @@ function NewSlide({
       </div>
       {open && (
         <div className="slide-size-options">
+          <label className="inspector-field">
+            Layout
+            <select
+              className="inspector-select"
+              aria-label="Slide layout"
+              value={layout}
+              onChange={(event) => setLayout(event.target.value as SlideLayout)}
+            >
+              {slideLayouts.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="inspector-field">
             Slide size
             <select
@@ -1656,6 +1698,129 @@ function SlideActions({
           Delete
         </button>
       </div>
+    </details>
+  );
+}
+
+function SlideGuides({
+  slide,
+  state,
+}: {
+  slide: Slide<ExcalidrawElement>;
+  state: AppState;
+}) {
+  const frame = slide.frame,
+    area = safeArea(frame),
+    zoom = state.zoom.value;
+  return createPortal(
+    <div
+      className="slide-guides"
+      style={{
+        left: state.offsetLeft,
+        top: state.offsetTop,
+        width: state.width,
+        height: state.height,
+      }}
+      aria-hidden="true"
+    >
+      <div
+        className="slide-safe-area"
+        style={{
+          left: (area.x + state.scrollX) * zoom,
+          top: (area.y + state.scrollY) * zoom,
+          width: area.width * zoom,
+          height: area.height * zoom,
+        }}
+      />
+      <div
+        className="slide-center vertical"
+        style={{
+          left: (frame.x + frame.width / 2 + state.scrollX) * zoom,
+          top: (frame.y + state.scrollY) * zoom,
+          height: frame.height * zoom,
+        }}
+      />
+      <div
+        className="slide-center horizontal"
+        style={{
+          left: (frame.x + state.scrollX) * zoom,
+          top: (frame.y + frame.height / 2 + state.scrollY) * zoom,
+          width: frame.width * zoom,
+        }}
+      />
+    </div>,
+    document.querySelector(".app") ?? document.body,
+  );
+}
+
+function SlideAlignment({
+  slide,
+  selected,
+  api,
+}: {
+  slide: Slide<ExcalidrawElement>;
+  selected: ExcalidrawElement[];
+  api: ExcalidrawImperativeAPI;
+}) {
+  const targets = buildTargets(slide, selected);
+  function align(value: string) {
+    if (!targets.length) return;
+    const [left, top, right, bottom] = getCommonBounds(targets);
+    const area = safeArea(slide.frame);
+    const dx =
+      value === "left"
+        ? area.x - left
+        : value === "center"
+          ? area.x + area.width / 2 - (left + right) / 2
+          : value === "right"
+            ? area.x + area.width - right
+            : 0;
+    const dy =
+      value === "top"
+        ? area.y - top
+        : value === "middle"
+          ? area.y + area.height / 2 - (top + bottom) / 2
+          : value === "bottom"
+            ? area.y + area.height - bottom
+            : 0;
+    const ids = new Set(targets.map((element) => element.id));
+    for (const element of slide.elements)
+      if (
+        "containerId" in element &&
+        element.containerId &&
+        ids.has(element.containerId)
+      )
+        ids.add(element.id);
+    api.updateScene({
+      elements: api
+        .getSceneElementsIncludingDeleted()
+        .map((element) =>
+          ids.has(element.id)
+            ? newElementWith(element, { x: element.x + dx, y: element.y + dy })
+            : element,
+        ),
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+  }
+  return (
+    <details className="slide-alignment">
+      <summary>Align selection to slide</summary>
+      <div className="slide-align-buttons">
+        {["left", "center", "right", "top", "middle", "bottom"].map((value) => (
+          <button
+            className="slides-button"
+            key={value}
+            disabled={!targets.length}
+            onClick={() => align(value)}
+          >
+            {value[0].toUpperCase() + value.slice(1)}
+          </button>
+        ))}
+      </div>
+      <p className="hint">
+        Select objects to align them within the safe margins. Multiple objects
+        move together.
+      </p>
     </details>
   );
 }

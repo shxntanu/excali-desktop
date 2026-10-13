@@ -79,3 +79,41 @@ test("slide duplication remaps frames, text, groups and arrows, preserving build
   assert.equal(getSlides(copies)[0].ranks.get(text.id), 1);
   assert.equal(JSON.stringify(source), before);
 });
+
+import { layoutElements, safeArea } from "./slide-authoring";
+
+test("layout starters scale to the frame and keep diagram references internal", () => {
+  assert.deepEqual(
+    layoutElements("blank", { x: 100, y: 200, width: 1600, height: 900 }),
+    [],
+  );
+  for (const width of [1200, 1600]) {
+    const frame = { x: 100, y: 200, width, height: 900 };
+    const area = safeArea(frame);
+    for (const layout of ["title", "columns", "diagram"] as const) {
+      const elements = layoutElements(layout, frame);
+      assert.ok(elements.length >= 2);
+      assert.ok(
+        elements.every(
+          (element) => element.x! >= area.x && element.y! >= area.y,
+        ),
+      );
+      assert.ok(
+        elements.every(
+          (element) => element.x! + (element.width ?? 0) <= area.x + area.width,
+        ),
+      );
+      assert.ok(
+        elements.every(
+          (element) =>
+            element.y! + (element.height ?? 0) <= area.y + area.height,
+        ),
+      );
+      assert.equal(elements[0].type, "text");
+    }
+    const diagram = layoutElements("diagram", frame) as any[];
+    const arrow = diagram.find((element) => element.type === "arrow");
+    assert.equal(arrow.start.id, diagram[1].id);
+    assert.equal(arrow.end.id, diagram[2].id);
+  }
+});
