@@ -6,6 +6,7 @@ import {
   useState,
   type ComponentProps,
   type CSSProperties,
+  type RefObject,
 } from "react";
 import {
   Excalidraw,
@@ -137,6 +138,8 @@ export default function App() {
   // Read by the window-level listeners, which keep their first closure.
   const presenting = useRef(false);
   const [slidesOpen, setSlidesOpen] = useState(false);
+  const canvases = useRef<HTMLDivElement>(null);
+  const canvasWidth = useCanvasWidth(canvases);
   const busyRef = useRef(false);
   const queue = useRef(createWriteQueue());
   const resolvePrompt = useRef<((choice: Choice) => void) | null>(null);
@@ -898,6 +901,7 @@ export default function App() {
         <aside
           className="sidebar"
           aria-label="Sidebar"
+          data-tauri-drag-region
           ref={(element) => {
             if (element) element.inert = !!presentation;
           }}
@@ -971,7 +975,12 @@ export default function App() {
               </button>
             )}
           </div>
-          <div className="tree" role="tree" aria-label="Drawings">
+          <div
+            className="tree"
+            role="tree"
+            aria-label="Drawings"
+            data-tauri-drag-region
+          >
             {(!path ||
               !workspace ||
               (!isWithin(path, workspace.root) &&
@@ -1205,7 +1214,7 @@ export default function App() {
             setError(`Use Open (${command}O) to open drawings.`);
           }}
         >
-          <div className="canvases">
+          <div className={`canvases ${canvasWidth}`} ref={canvases}>
           {/* Every open drawing keeps its editor, and with it its undo history; only the active one is shown. */}
           {ready &&
             docs.current.map((doc) => (
@@ -1231,13 +1240,15 @@ export default function App() {
                       toggleTheme: false,
                     },
                   }}
-                  renderTopRightUI={() => (
-                    <SlidesTrigger
-                      open={slidesOpen}
-                      onToggle={() => setSlidesOpen(!slidesOpen)}
-                      onPlay={() => handlers.current.present()}
-                    />
-                  )}
+                  renderTopRightUI={() =>
+                    // The open panel has its own close and present buttons.
+                    slidesOpen ? null : (
+                      <SlidesTrigger
+                        onOpen={() => setSlidesOpen(true)}
+                        onPlay={() => handlers.current.present()}
+                      />
+                    )
+                  }
                 >
                   <MainMenu>
                     <MainMenu.DefaultItems.Export />
@@ -1508,6 +1519,22 @@ function RenameField({
       }}
     />
   );
+}
+
+// Excalidraw's top bar only adapts below its mobile breakpoint, so narrower desktop
+// canvases (such as beside the slides panel) get compact styles from style.css.
+function useCanvasWidth(ref: RefObject<HTMLElement>) {
+  const [tier, setTier] = useState("");
+  useEffect(() => {
+    if (!ref.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry.contentRect.width;
+      setTier(width < 840 ? "narrow compact" : width < 1000 ? "narrow" : "");
+    });
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+  return tier;
 }
 
 function useTheme() {

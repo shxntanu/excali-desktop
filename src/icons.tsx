@@ -21,7 +21,9 @@ export type IconName =
   | "slides"
   | "up"
   | "down"
-  | "frame";
+  | "frame"
+  | "more"
+  | "settings";
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   return (
@@ -110,6 +112,16 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
         </>
       )}
       {name === "frame" && <path d="M4 7h16M4 17h16M7 4v16M17 4v16" />}
+      {name === "more" && (
+        <path d="M5 12h.01M12 12h.01M19 12h.01" strokeWidth="2.5" />
+      )}
+      {name === "settings" && (
+        <>
+          <path d="M4 7h8M16 7h4M4 17h2M10 17h10" />
+          <circle cx="14" cy="7" r="2" />
+          <circle cx="8" cy="17" r="2" />
+        </>
+      )}
     </svg>
   );
 }

@@ -67,6 +67,7 @@ import {
 const transitionLabels = { move: "Move", dissolve: "Dissolve", cut: "Cut" };
 const effectLabels = { fade: "Fade", rise: "Rise", appear: "Appear" };
 const DRAG_TYPE = "application/x-excali-slide";
+const DEFAULT_SIZE = { width: 1600, height: 900 };
 
 type Scene = {
   elements: readonly ExcalidrawElement[];
@@ -110,38 +111,51 @@ export function SlidesPanel({
         onEditorKey(event.nativeEvent);
       }}
     >
-      <header className="slides-header">
-        <h2>Slides</h2>
-        <button
-          className="icon-button"
-          onClick={onClose}
-          aria-label="Hide slides"
-          title="Hide slides"
-        >
-          <Icon name="close" />
-        </button>
-      </header>
-      {api && <Panel api={api} onPlay={onPlay} />}
+      {api ? (
+        <Panel api={api} onPlay={onPlay} onClose={onClose} />
+      ) : (
+        <PanelHeader onClose={onClose} />
+      )}
     </aside>
+  );
+}
+
+function PanelHeader({
+  onClose,
+  children,
+}: {
+  onClose: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <header className="slides-header">
+      <h2>Slides</h2>
+      {children}
+      <button
+        className="icon-button"
+        onClick={onClose}
+        aria-label="Hide slides"
+        title="Hide slides"
+      >
+        <Icon name="close" />
+      </button>
+    </header>
   );
 }
 
 // Styled with Excalidraw's own trigger classes so it matches the library button beside it.
 export function SlidesTrigger({
-  open,
-  onToggle,
+  onOpen,
   onPlay,
 }: {
-  open: boolean;
-  onToggle: () => void;
+  onOpen: () => void;
   onPlay: () => void;
 }) {
   return (
     <div className="slides-triggers">
       <button
-        className={`sidebar-trigger default-sidebar-trigger ${open ? "active" : ""}`}
-        onClick={onToggle}
-        aria-pressed={open}
+        className="sidebar-trigger default-sidebar-trigger"
+        onClick={onOpen}
         title="Slides"
       >
         <Icon name="slides" size={16} />
@@ -166,9 +180,11 @@ const sceneKey = ({ elements, appState, files }: Scene) =>
 function Panel({
   api,
   onPlay,
+  onClose,
 }: {
   api: ExcalidrawImperativeAPI;
   onPlay: Play;
+  onClose: () => void;
 }) {
   const [scene, setScene] = useState<Scene>(() => ({
     elements: api.getSceneElements(),
@@ -190,6 +206,8 @@ function Panel({
   const slides = useMemo(() => getSlides(scene.elements), [scene.elements]);
   const [pendingDeck, setPendingDeck] = useState(() => readDeck([]));
   const deck = slides.length ? readDeck(scene.elements) : pendingDeck;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
   const selected = useMemo(() => {
     const ids = scene.appState.selectedElementIds;
     return scene.elements.filter(
@@ -276,12 +294,20 @@ function Panel({
     setDrag(null);
   }
 
+  function sizeFor(slide: Slide | undefined) {
+    return (
+      deck.size ??
+      (slide
+        ? { width: slide.frame.width, height: slide.frame.height }
+        : DEFAULT_SIZE)
+    );
+  }
+
   function createSlide(
-    width: number,
-    height: number,
-    after: Slide<ExcalidrawElement> | undefined = current,
+    after: Slide<ExcalidrawElement> | undefined,
     layout: SlideLayout = "blank",
   ) {
+    const { width, height } = sizeFor(after ?? slides.at(-1));
     const state = api.getAppState();
     const live = api.getSceneElements();
     const x = live.length
@@ -383,6 +409,20 @@ function Panel({
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
     show(getSlides(copies)[0]);
+  }
+
+  function rename(slide: Slide<ExcalidrawElement>, name: string) {
+    api.updateScene({
+      elements: api
+        .getSceneElementsIncludingDeleted()
+        .map((element) =>
+          element.id === slide.frame.id &&
+          (element.type === "frame" || element.type === "magicframe")
+            ? newElementWith(element, { name })
+            : element,
+        ),
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
   }
 
   function removeSlide(slide: Slide<ExcalidrawElement>) {
@@ -487,172 +527,207 @@ function Panel({
     });
   }
 
-  const defaults = (
-    <DeckDefaultsEditor
-      deck={deck}
-      onChange={setDeck}
-      onApply={applyDeck}
-      disabled={!slides.length}
-    />
+  const header = (
+    <PanelHeader onClose={onClose}>
+      <button
+        className="icon-button"
+        aria-pressed={settingsOpen}
+        onClick={() => setSettingsOpen(!settingsOpen)}
+        aria-label="Deck settings"
+        title="Deck settings"
+      >
+        <Icon name="settings" />
+      </button>
+      <button
+        className="icon-button accent"
+        disabled={!slides.length}
+        onClick={() => onPlay(null)}
+        aria-label="Present"
+        title="Present (⇧⌘P)"
+      >
+        <Icon name="play" size={16} />
+      </button>
+    </PanelHeader>
   );
 
-  const newSlide = (
-    <NewSlide
-      currentSize={
-        deck.size ??
-        (current
-          ? { width: current.frame.width, height: current.frame.height }
-          : undefined)
-      }
-      onCreate={(width, height, layout) =>
-        createSlide(width, height, current, layout)
-      }
-      onFreeform={() => api.setActiveTool({ type: "frame" })}
-    />
+  const top = (
+    <>
+      {settingsOpen && (
+        <DeckSettings
+          deck={deck}
+          onChange={setDeck}
+          onApply={applyDeck}
+          hasSlides={slides.length > 0}
+        />
+      )}
+      <NewSlide
+        onCreate={(layout) => createSlide(current, layout)}
+        onFreeform={() => api.setActiveTool({ type: "frame" })}
+      />
+    </>
   );
 
   if (!slides.length)
     return (
-      <div className="slides-panel slides-empty">
-        <Icon name="frame" size={32} />
-        <p>Create your first slide</p>
-        {newSlide}
-        {defaults}
-        <button
-          className="slides-button"
-          onClick={() => api.setActiveTool({ type: "frame" })}
-        >
-          Frame tool <kbd>F</kbd>
-        </button>
-      </div>
+      <>
+        {header}
+        <div className="slides-panel">
+          {top}
+          <div className="slides-empty">
+            <Icon name="frame" size={28} />
+            <p>No slides yet</p>
+            <p className="hint">
+              Add a slide above, or draw a frame on the canvas with{" "}
+              <kbd>F</kbd>.
+            </p>
+          </div>
+        </div>
+      </>
     );
 
   return (
-    <div className="slides-panel">
-      {newSlide}
-      {defaults}
-      <button className="slides-button primary" onClick={() => onPlay(null)}>
-        <Icon name="play" size={16} />
-        Present
-      </button>
-      <ol
-        ref={list}
-        className="slides-list"
-        aria-label="Slides"
-        onDragOver={(event) => {
-          if (drag) event.preventDefault();
-        }}
-        onDrop={drop}
-      >
-        {slides.map((slide, index) => {
-          const name =
-            (slide.frame as ExcalidrawFrameLikeElement).name ||
-            `Slide ${index + 1}`;
-          const isCurrent = slide === current;
-          return (
-            <li
-              key={slide.frame.id}
-              draggable
-              className={`slide-card ${isCurrent ? "current" : ""} ${slide.settings.hidden ? "skipped" : ""} ${drag?.from === index ? "dragging" : ""} ${drag?.to === index ? "drop-before" : ""} ${drag?.to === index + 1 && index === slides.length - 1 ? "drop-after" : ""}`}
-              onDragStart={(event) => {
-                event.dataTransfer.setData(DRAG_TYPE, slide.frame.id);
-                event.dataTransfer.effectAllowed = "move";
-                setDrag({ from: index, to: index });
-              }}
-              onDragOver={(event) => {
-                if (!drag) return;
-                event.preventDefault();
-                const box = event.currentTarget.getBoundingClientRect();
-                const to =
-                  event.clientY > box.top + box.height / 2 ? index + 1 : index;
-                if (to !== drag.to) setDrag({ ...drag, to });
-              }}
-              onDragEnd={() => setDrag(null)}
-            >
-              <button
-                className="slide-thumb"
-                aria-current={isCurrent || undefined}
-                aria-label={`${index + 1}. ${name}`}
-                title={`${name} — double-click to present from here, ⌥↑ ⌥↓ to reorder`}
-                onClick={() => show(slide)}
-                onDoubleClick={() => onPlay(slide.frame.id)}
-                onKeyDown={(event) => {
-                  if (
-                    !event.altKey ||
-                    (event.key !== "ArrowUp" && event.key !== "ArrowDown")
-                  )
-                    return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const to = index + (event.key === "ArrowUp" ? -1 : 1);
-                  if (to < 0 || to >= slides.length) return;
-                  focusAfter.current = to;
-                  reorder(index, to);
+    <>
+      {header}
+      <div className="slides-panel">
+        {top}
+        <ol
+          ref={list}
+          className="slides-list"
+          aria-label="Slides"
+          onDragOver={(event) => {
+            if (drag) event.preventDefault();
+          }}
+          onDrop={drop}
+        >
+          {slides.map((slide, index) => {
+            const name =
+              (slide.frame as ExcalidrawFrameLikeElement).name ||
+              `Slide ${index + 1}`;
+            const isCurrent = slide === current;
+            return (
+              <li
+                key={slide.frame.id}
+                draggable={renaming !== slide.frame.id}
+                className={`slide-card ${isCurrent ? "current" : ""} ${slide.settings.hidden ? "skipped" : ""} ${drag?.from === index ? "dragging" : ""} ${drag?.to === index ? "drop-before" : ""} ${drag?.to === index + 1 && index === slides.length - 1 ? "drop-after" : ""}`}
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(DRAG_TYPE, slide.frame.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  setDrag({ from: index, to: index });
                 }}
+                onDragOver={(event) => {
+                  if (!drag) return;
+                  event.preventDefault();
+                  const box = event.currentTarget.getBoundingClientRect();
+                  const to =
+                    event.clientY > box.top + box.height / 2
+                      ? index + 1
+                      : index;
+                  if (to !== drag.to) setDrag({ ...drag, to });
+                }}
+                onDragEnd={() => setDrag(null)}
               >
-                <Thumbnail slide={slide} scene={scene} />
-                <span className="slide-number">{index + 1}</span>
-                {slide.settings.hidden && (
-                  <span className="slide-badge" title="Skipped">
-                    <Icon name="skip" size={14} />
-                  </span>
-                )}
-              </button>
-              <SlideActions
-                name={name}
-                onNew={() =>
-                  createSlide(
-                    deck.size?.width ?? slide.frame.width,
-                    deck.size?.height ?? slide.frame.height,
-                    slide,
-                  )
-                }
-                onDuplicate={() => duplicate(slide)}
-                onDelete={() => removeSlide(slide)}
-                onRename={(name) =>
-                  api.updateScene({
-                    elements: api
-                      .getSceneElementsIncludingDeleted()
-                      .map((element) =>
-                        element.id === slide.frame.id &&
-                        (element.type === "frame" ||
-                          element.type === "magicframe")
-                          ? newElementWith(element, { name })
-                          : element,
-                      ),
-                    captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-                  })
-                }
-              />
-              <div className="slide-meta">
-                <span className="label">{name}</span>
-                {slide.steps.length > 0 && (
-                  <span className="hint">
-                    {slide.steps.length}{" "}
-                    {slide.steps.length === 1 ? "reveal step" : "reveal steps"}
-                  </span>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-      {current && (
-        <Inspector
-          key={current.frame.id}
-          slide={current}
-          index={slides.indexOf(current)}
-          selected={selected}
-          api={api}
-          scene={scene}
-          defaultEffect={deck.effect}
-          setSettings={(settings) => setSettings(current, settings)}
-          patch={patch}
-          select={select}
-          onPlay={() => onPlay(current.frame.id)}
-        />
-      )}
-    </div>
+                <button
+                  className="slide-thumb"
+                  aria-current={isCurrent || undefined}
+                  aria-label={`${index + 1}. ${name}`}
+                  title={`${name} — double-click to present from here, ⌥↑ ⌥↓ to reorder`}
+                  onClick={() => show(slide)}
+                  onDoubleClick={() => onPlay(slide.frame.id)}
+                  onKeyDown={(event) => {
+                    if (
+                      !event.altKey ||
+                      (event.key !== "ArrowUp" && event.key !== "ArrowDown")
+                    )
+                      return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const to = index + (event.key === "ArrowUp" ? -1 : 1);
+                    if (to < 0 || to >= slides.length) return;
+                    focusAfter.current = to;
+                    reorder(index, to);
+                  }}
+                >
+                  <Thumbnail slide={slide} scene={scene} />
+                  <span className="slide-number">{index + 1}</span>
+                  {slide.settings.hidden && (
+                    <span className="slide-badge" title="Skipped">
+                      <Icon name="skip" size={14} />
+                    </span>
+                  )}
+                </button>
+                <div className="slide-meta">
+                  {renaming === slide.frame.id ? (
+                    <NameField
+                      name={name}
+                      onDone={(value) => {
+                        setRenaming(null);
+                        if (value && value !== name) rename(slide, value);
+                      }}
+                    />
+                  ) : (
+                    <span
+                      className="label"
+                      onDoubleClick={() => setRenaming(slide.frame.id)}
+                    >
+                      {name}
+                    </span>
+                  )}
+                  {slide.steps.length > 0 && (
+                    <span
+                      className="hint"
+                      title={`${slide.steps.length} reveal ${slide.steps.length === 1 ? "step" : "steps"}`}
+                    >
+                      {slide.steps.length}{" "}
+                      {slide.steps.length === 1 ? "step" : "steps"}
+                    </span>
+                  )}
+                  <Dropdown
+                    label={`Actions for ${name}`}
+                    className="icon-button slide-more"
+                    trigger={<Icon name="more" size={16} />}
+                    items={[
+                      {
+                        label: "New slide after",
+                        onSelect: () => createSlide(slide),
+                      },
+                      {
+                        label: "Duplicate",
+                        onSelect: () => duplicate(slide),
+                      },
+                      {
+                        label: "Rename",
+                        onSelect: () => setRenaming(slide.frame.id),
+                      },
+                      null,
+                      {
+                        label: "Delete",
+                        danger: true,
+                        onSelect: () => removeSlide(slide),
+                      },
+                    ]}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        {current && (
+          <Inspector
+            key={current.frame.id}
+            slide={current}
+            index={slides.indexOf(current)}
+            selected={selected}
+            api={api}
+            scene={scene}
+            defaultEffect={deck.effect}
+            setSettings={(settings) => setSettings(current, settings)}
+            patch={patch}
+            select={select}
+            onPlay={() => onPlay(current.frame.id)}
+          />
+        )}
+      </div>
+    </>
   );
 }
 
@@ -682,7 +757,6 @@ function Inspector({
   const { settings } = slide;
   const [preview, setPreview] = useState(false);
   const [badges, setBadges] = useState(true);
-  const [guides, setGuides] = useState(false);
   const speed = speeds.reduce((best, option) =>
     Math.abs(option.duration - settings.duration) <
     Math.abs(best.duration - settings.duration)
@@ -713,15 +787,14 @@ function Inspector({
   );
   const effect = effectsInUse.size === 1 ? [...effectsInUse][0] : null;
   const owners = (step: number) => buildOwners(slide, step);
+  const steps = slide.steps.length;
 
   function setRank(value: string) {
+    if (value === "each") return revealSeparately();
     const step =
       value === "none"
         ? null
-        : stepForRank(
-            slide,
-            value === "new" ? slide.steps.length + 1 : Number(value),
-          );
+        : stepForRank(slide, value === "new" ? steps + 1 : Number(value));
     patch(
       new Map(
         targets.map((element) => [
@@ -755,7 +828,7 @@ function Inspector({
   }
 
   function reorderBuild(from: number, to: number) {
-    if (from === to || to < 0 || to >= slide.steps.length) return;
+    if (from === to || to < 0 || to >= steps) return;
     patch(reorderBuilds(slide, from, to));
   }
 
@@ -779,24 +852,17 @@ function Inspector({
       className="slides-inspector"
       aria-label={`Slide ${index + 1} settings`}
     >
-      <div className="inspector-row">
+      <div className="inspector-heading">
         <h3>Slide {index + 1}</h3>
-        <button className="slides-button" onClick={onPlay}>
+        <button
+          className="icon-button"
+          onClick={onPlay}
+          aria-label="Present from this slide"
+          title="Present from this slide"
+        >
           <Icon name="play" size={14} />
-          Present from here
         </button>
       </div>
-      <FrameSize slide={slide} api={api} />
-      <label className="inspector-check">
-        <input
-          type="checkbox"
-          checked={guides}
-          onChange={(event) => setGuides(event.target.checked)}
-        />
-        Show safe margins and center guides
-      </label>
-      {guides && <SlideGuides slide={slide} state={scene.appState} />}
-      <SlideAlignment slide={slide} selected={selected} api={api} />
       <Field label="Transition">
         <Segmented
           value={settings.transition}
@@ -806,17 +872,17 @@ function Inspector({
           }))}
           onChange={(transition) => setSettings({ transition })}
         />
-      </Field>
-      <Field label="Speed">
-        <Segmented
-          value={speed.duration}
-          disabled={settings.transition === "cut"}
-          options={speeds.map(({ label, duration }) => ({
-            value: duration,
-            label,
-          }))}
-          onChange={(duration) => setSettings({ duration })}
-        />
+        {settings.transition !== "cut" && (
+          <Segmented
+            label="Transition speed"
+            value={speed.duration}
+            options={speeds.map(({ label, duration }) => ({
+              value: duration,
+              label,
+            }))}
+            onChange={(duration) => setSettings({ duration })}
+          />
+        )}
       </Field>
       <label className="inspector-check">
         <input
@@ -826,53 +892,51 @@ function Inspector({
         />
         Skip when presenting
       </label>
+      <SlideLayoutTools
+        slide={slide}
+        selected={selected}
+        api={api}
+        state={scene.appState}
+      />
 
-      <div className="inspector-row">
+      <div className="inspector-heading">
         <h3>Reveal steps</h3>
-        <button
-          className="slides-button"
-          aria-pressed={preview}
-          onClick={() => setPreview(!preview)}
-        >
-          {preview ? "Stop preview" : "Preview"}
-        </button>
+        <div className="heading-actions">
+          <button
+            className="chip"
+            aria-pressed={badges}
+            onClick={() => setBadges(!badges)}
+            title="Show step numbers on the canvas"
+          >
+            Numbers
+          </button>
+          <button
+            className="chip"
+            aria-pressed={preview && steps > 0}
+            disabled={!steps}
+            onClick={() => setPreview(!preview)}
+            title="Preview the reveal steps"
+          >
+            Preview
+          </button>
+        </div>
       </div>
-      {preview && <SlidePreview slide={slide} scene={scene} />}
-      <label className="inspector-check">
-        <input
-          type="checkbox"
-          checked={badges}
-          onChange={(event) => setBadges(event.target.checked)}
-        />
-        Show reveal step numbers on canvas
-      </label>
+      {preview && steps > 0 && <SlidePreview slide={slide} scene={scene} />}
       {badges && (
         <BuildBadges slide={slide} state={scene.appState} select={select} />
       )}
       {targets.length > 0 ? (
-        <>
-          <div className="build-actions">
-            <button className="slides-button" onClick={() => setRank("new")}>
-              Reveal together
-            </button>
-            <button
-              className="slides-button"
-              disabled={targets.length < 2}
-              onClick={revealSeparately}
-            >
-              Reveal separately
-            </button>
-          </div>
+        <div className="build-editor">
           <Field
             label={
               targets.length === 1
-                ? "Selected element"
-                : `${targets.length} selected elements`
+                ? buildLabel(slide, targets[0])
+                : `${targets.length} objects`
             }
           >
             <select
               className="inspector-select"
-              aria-label="Selected objects reveal step"
+              aria-label="When the selection appears"
               value={rank === null ? "" : rank === 0 ? "none" : String(rank)}
               onChange={(event) => setRank(event.target.value)}
             >
@@ -884,35 +948,37 @@ function Inspector({
               <option value="none">Always visible</option>
               {slide.steps.map((_, position) => (
                 <option key={position} value={String(position + 1)}>
-                  Reveal step {position + 1}
+                  Step {position + 1}
                 </option>
               ))}
-              <option value="new">
-                New reveal step {slide.steps.length + 1}
-              </option>
+              <option value="new">New step</option>
+              {targets.length > 1 && (
+                <option value="each">New step for each</option>
+              )}
             </select>
           </Field>
           {built.length > 0 && (
-            <Field label="Effect">
-              <Segmented
-                value={effect}
-                options={effects.map((value) => ({
-                  value,
-                  label: effectLabels[value],
-                }))}
-                onChange={setEffect}
-              />
-            </Field>
+            <Segmented
+              label="Reveal effect"
+              value={effect}
+              options={effects.map((value) => ({
+                value,
+                label: effectLabels[value],
+              }))}
+              onChange={setEffect}
+            />
           )}
-        </>
+        </div>
+      ) : others.length ? (
+        <p className="hint">Select objects inside this slide to reveal them.</p>
       ) : (
-        <p className="hint">
-          {others.length
-            ? "Select objects inside this slide to reveal them."
-            : "Select objects on this slide to reveal them one step at a time."}
-        </p>
+        !steps && (
+          <p className="hint">
+            Select objects on this slide to reveal them one step at a time.
+          </p>
+        )
       )}
-      {slide.steps.length > 0 && (
+      {steps > 0 && (
         <ol className="build-list" aria-label="Reveal steps" ref={buildList}>
           {slide.steps.map((step, position) => {
             const objects = owners(step);
@@ -946,109 +1012,62 @@ function Inspector({
                   setDropBuild(null);
                 }}
               >
-                <div className="build-row">
-                  <button
-                    className="build-select"
-                    draggable
-                    aria-pressed={selectedBuild}
-                    title={`${name} — drag or use ⌥↑ / ⌥↓ to reorder`}
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData(
-                        "application/x-excali-build",
-                        String(position),
-                      );
-                      event.dataTransfer.effectAllowed = "move";
-                      setBuildDrag(position);
-                    }}
-                    onDragEnd={() => {
-                      setBuildDrag(null);
-                      setDropBuild(null);
-                    }}
-                    onKeyDown={(event) => {
-                      if (
-                        !event.altKey ||
-                        !["ArrowUp", "ArrowDown"].includes(event.key)
-                      )
-                        return;
-                      event.preventDefault();
-                      const to = position + (event.key === "ArrowUp" ? -1 : 1);
-                      if (to < 0 || to >= slide.steps.length) return;
-                      buildFocus.current = to;
-                      reorderBuild(position, to);
-                    }}
-                    onClick={() => select(objects.map((element) => element.id))}
-                  >
-                    <span className="build-rank">{position + 1}</span>
-                    <span className="build-name">{name}</span>
-                  </button>
-                  <button
-                    className="icon-button"
-                    disabled={position === 0}
-                    onClick={() => reorderBuild(position, position - 1)}
-                    aria-label={`Move reveal step ${position + 1} earlier`}
-                    title="Earlier"
-                  >
-                    <Icon name="up" size={14} />
-                  </button>
-                  <button
-                    className="icon-button"
-                    disabled={position === slide.steps.length - 1}
-                    onClick={() => reorderBuild(position, position + 1)}
-                    aria-label={`Move reveal step ${position + 1} later`}
-                    title="Later"
-                  >
-                    <Icon name="down" size={14} />
-                  </button>
-                  <button
-                    className="icon-button"
-                    aria-label={`Remove reveal step ${position + 1}`}
-                    title="Remove animation"
-                    onClick={() =>
-                      patch(
-                        new Map(
-                          objects.map((element) => [
-                            element.id,
-                            withBuild(element.customData, null),
-                          ]),
-                        ),
-                      )
-                    }
-                  >
-                    <Icon name="close" size={14} />
-                  </button>
-                </div>
-                <label className="build-effect">
-                  Effect
-                  <select
-                    className="inspector-select"
-                    aria-label={`Reveal step ${position + 1} effect`}
-                    value={rowEffects.size === 1 ? [...rowEffects][0] : ""}
-                    onChange={(event) =>
-                      patch(
-                        new Map(
-                          objects.map((element) => [
-                            element.id,
-                            withBuild(element.customData, {
-                              step,
-                              effect: event.target.value as Effect,
-                            }),
-                          ]),
-                        ),
-                      )
-                    }
-                  >
-                    {rowEffects.size > 1 && (
-                      <option value="" disabled>
-                        Mixed
-                      </option>
-                    )}
-                    {effects.map((effect) => (
-                      <option key={effect} value={effect}>
-                        {effectLabels[effect]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <button
+                  className="build-select"
+                  draggable
+                  aria-pressed={selectedBuild}
+                  title={`${name} — drag or use ⌥↑ ⌥↓ to reorder`}
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData(
+                      "application/x-excali-build",
+                      String(position),
+                    );
+                    event.dataTransfer.effectAllowed = "move";
+                    setBuildDrag(position);
+                  }}
+                  onDragEnd={() => {
+                    setBuildDrag(null);
+                    setDropBuild(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      !event.altKey ||
+                      !["ArrowUp", "ArrowDown"].includes(event.key)
+                    )
+                      return;
+                    event.preventDefault();
+                    const to = position + (event.key === "ArrowUp" ? -1 : 1);
+                    if (to < 0 || to >= steps) return;
+                    buildFocus.current = to;
+                    reorderBuild(position, to);
+                  }}
+                  onClick={() => select(objects.map((element) => element.id))}
+                >
+                  <span className="build-rank">{position + 1}</span>
+                  <span className="build-name">{name}</span>
+                  <span className="build-effect">
+                    {rowEffects.size === 1
+                      ? effectLabels[[...rowEffects][0]]
+                      : "Mixed"}
+                  </span>
+                </button>
+                <button
+                  className="icon-button build-remove"
+                  aria-label={`Remove reveal step ${position + 1}`}
+                  title="Always show these objects"
+                  onClick={() =>
+                    patch(
+                      new Map(
+                        objects.map((element) => [
+                          element.id,
+                          withBuild(element.customData, null),
+                        ]),
+                      ),
+                    )
+                  }
+                >
+                  <Icon name="close" size={14} />
+                </button>
               </li>
             );
           })}
@@ -1058,28 +1077,41 @@ function Inspector({
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  action,
+  children,
+}: {
+  label: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div className="inspector-field">
-      <span className="inspector-label">{label}</span>
+      <div className="inspector-label">
+        <span>{label}</span>
+        {action}
+      </div>
       {children}
     </div>
   );
 }
 
 function Segmented<T extends string | number>({
+  label,
   value,
   options,
   disabled,
   onChange,
 }: {
+  label?: string;
   value: T | null;
   options: { value: T; label: string }[];
   disabled?: boolean;
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="segmented" role="radiogroup">
+    <div className="segmented" role="radiogroup" aria-label={label}>
       {options.map((option) => (
         <button
           key={option.value}
@@ -1092,6 +1124,126 @@ function Segmented<T extends string | number>({
         </button>
       ))}
     </div>
+  );
+}
+
+type MenuItem = { label: ReactNode; onSelect: () => void; danger?: boolean };
+
+// A null item draws a separator.
+function Dropdown({
+  label,
+  className,
+  trigger,
+  items,
+}: {
+  label: string;
+  className: string;
+  trigger: ReactNode;
+  items: (MenuItem | null)[];
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    root.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+    const away = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [open]);
+  return (
+    <div
+      className="dropdown"
+      ref={root}
+      onKeyDown={(event) => {
+        if (!open) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+          button.current?.focus();
+        } else if (event.key === "Tab") {
+          setOpen(false);
+        } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const entries = [
+            ...root.current!.querySelectorAll<HTMLElement>("[role=menuitem]"),
+          ];
+          const at = entries.indexOf(document.activeElement as HTMLElement);
+          const step = event.key === "ArrowDown" ? 1 : -1;
+          entries[(at + step + entries.length) % entries.length]?.focus();
+        }
+      }}
+    >
+      <button
+        ref={button}
+        className={className}
+        aria-label={label}
+        title={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {trigger}
+      </button>
+      {open && (
+        <div className="dropdown-menu" role="menu" aria-label={label}>
+          {items.map((item, index) =>
+            item ? (
+              <button
+                key={index}
+                role="menuitem"
+                className={item.danger ? "danger" : undefined}
+                onClick={() => {
+                  setOpen(false);
+                  item.onSelect();
+                }}
+              >
+                {item.label}
+              </button>
+            ) : (
+              <hr key={index} />
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NameField({
+  name,
+  onDone,
+}: {
+  name: string;
+  onDone: (name: string | null) => void;
+}) {
+  const finished = useRef(false);
+  const finish = (value: string | null) => {
+    if (finished.current) return;
+    finished.current = true;
+    onDone(value?.trim() || null);
+  };
+  return (
+    <input
+      className="slide-name-field"
+      aria-label="Slide name"
+      defaultValue={name}
+      maxLength={200}
+      autoFocus
+      spellCheck={false}
+      onFocus={(event) => event.currentTarget.select()}
+      onBlur={(event) => finish(event.currentTarget.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") finish(event.currentTarget.value);
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          finish(null);
+        }
+      }}
+    />
   );
 }
 
@@ -1163,134 +1315,39 @@ function Thumbnail({
   );
 }
 
-const SIZE_KEY = "excali-slide-size";
 function NewSlide({
   onCreate,
   onFreeform,
-  currentSize,
 }: {
-  currentSize?: { width: number; height: number };
-  onCreate: (width: number, height: number, layout: SlideLayout) => void;
+  onCreate: (layout: SlideLayout) => void;
   onFreeform: () => void;
 }) {
-  const [size, setSize] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(SIZE_KEY) ?? "null");
-      if (saved && validSize(saved.width, saved.height))
-        return saved as { width: number; height: number };
-    } catch {}
-    return { width: 1600, height: 900 };
-  });
-  const [open, setOpen] = useState(false);
-  const [layout, setLayout] = useState<SlideLayout>("blank");
-  const [preset, setPreset] = useState(
-    () =>
-      slideSizes.find(
-        (option) =>
-          option.width === size.width && option.height === size.height,
-      )?.label ?? "custom",
-  );
-  useEffect(() => {
-    if (!currentSize) return;
-    setSize(currentSize);
-    setPreset(
-      slideSizes.find(
-        (option) =>
-          option.width === currentSize.width &&
-          option.height === currentSize.height,
-      )?.label ?? "custom",
-    );
-  }, [currentSize?.width, currentSize?.height]);
-  function create() {
-    if (!validSize(size.width, size.height)) return;
-    try {
-      localStorage.setItem(SIZE_KEY, JSON.stringify(size));
-    } catch {}
-    onCreate(size.width, size.height, layout);
-    setOpen(false);
-  }
   return (
     <div className="new-slide">
-      <div className="slide-create-row">
-        <button
-          className="slides-button"
-          onClick={create}
-          disabled={!validSize(size.width, size.height)}
-        >
-          <Icon name="plus" size={14} />
-          New slide
-        </button>
-        <button
-          className="slides-button"
-          aria-label="Slide size options"
-          aria-expanded={open}
-          onClick={() => setOpen(!open)}
-        >
-          <Icon name="down" size={14} />
-        </button>
-      </div>
-      {open && (
-        <div className="slide-size-options">
-          <label className="inspector-field">
-            Layout
-            <select
-              className="inspector-select"
-              aria-label="Slide layout"
-              value={layout}
-              onChange={(event) => setLayout(event.target.value as SlideLayout)}
-            >
-              {slideLayouts.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="inspector-field">
-            Slide size
-            <select
-              className="inspector-select"
-              value={preset}
-              onChange={(event) => {
-                setPreset(event.target.value);
-                const option = slideSizes.find(
-                  (option) => option.label === event.target.value,
-                );
-                if (option)
-                  setSize({ width: option.width, height: option.height });
-              }}
-            >
-              {slideSizes.map((option) => (
-                <option key={option.label}>{option.label}</option>
-              ))}
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-          {preset === "custom" && (
-            <SizeInputs
-              width={size.width}
-              height={size.height}
-              onChange={setSize}
-            />
-          )}
-          <button
-            className="slides-button"
-            onClick={create}
-            disabled={!validSize(size.width, size.height)}
-          >
-            Create slide
-          </button>
-          <button
-            className="slides-button"
-            onClick={() => {
-              onFreeform();
-              setOpen(false);
-            }}
-          >
-            Freeform frame <kbd>F</kbd>
-          </button>
-        </div>
-      )}
+      <button className="slides-button" onClick={() => onCreate("blank")}>
+        <Icon name="plus" size={14} />
+        New slide
+      </button>
+      <Dropdown
+        label="New slide from a layout"
+        className="slides-button"
+        trigger={<Icon name="down" size={14} />}
+        items={[
+          ...slideLayouts.map((option) => ({
+            label: option.label,
+            onSelect: () => onCreate(option.value),
+          })),
+          null,
+          {
+            label: (
+              <>
+                Draw a frame <kbd>F</kbd>
+              </>
+            ),
+            onSelect: onFreeform,
+          },
+        ]}
+      />
     </div>
   );
 }
@@ -1305,46 +1362,97 @@ function validSize(width: number, height: number) {
     height <= 10000
   );
 }
+
+const presetOf = (size: { width: number; height: number }) =>
+  slideSizes.find(
+    (option) =>
+      Math.abs(size.width / size.height - option.width / option.height) <
+      0.001,
+  )?.label ?? "custom";
+
 function SizeInputs({
   width,
   height,
   onChange,
+  children,
 }: {
   width: number;
   height: number;
   onChange: (size: { width: number; height: number }) => void;
+  children?: ReactNode;
 }) {
   return (
     <div className="slide-dimensions">
-      <label>
-        Width
+      <label title="Width">
+        <span>W</span>
         <input
           type="number"
-          aria-label="Slide width"
+          aria-label="Width"
           min="1"
           max="10000"
-          value={width || ""}
+          value={width ? Math.round(width) : ""}
           onChange={(event) =>
             onChange({ width: Number(event.target.value), height })
           }
         />
       </label>
-      <label>
-        Height
+      <label title="Height">
+        <span>H</span>
         <input
           type="number"
-          aria-label="Slide height"
+          aria-label="Height"
           min="1"
           max="10000"
-          value={height || ""}
+          value={height ? Math.round(height) : ""}
           onChange={(event) =>
             onChange({ width, height: Number(event.target.value) })
           }
         />
       </label>
+      {children}
     </div>
   );
 }
+
+function SlideLayoutTools({
+  slide,
+  selected,
+  api,
+  state,
+}: {
+  slide: Slide<ExcalidrawElement>;
+  selected: ExcalidrawElement[];
+  api: ExcalidrawImperativeAPI;
+  state: AppState;
+}) {
+  const [open, setOpen] = useState(false);
+  const [guides, setGuides] = useState(false);
+  return (
+    <details
+      className="inspector-group"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>
+        Size and alignment
+        <span className="hint">
+          {Math.round(slide.frame.width)} × {Math.round(slide.frame.height)}
+        </span>
+      </summary>
+      <FrameSize slide={slide} api={api} />
+      <SlideAlignment slide={slide} selected={selected} api={api} />
+      <label className="inspector-check">
+        <input
+          type="checkbox"
+          checked={guides}
+          onChange={(event) => setGuides(event.target.checked)}
+        />
+        Show safe area and center guides
+      </label>
+      {open && guides && <SlideGuides slide={slide} state={state} />}
+    </details>
+  );
+}
+
 function FrameSize({
   slide,
   api,
@@ -1361,7 +1469,11 @@ function FrameSize({
     () => setSize({ width: frame.width, height: frame.height }),
     [frame.width, frame.height],
   );
-  function resize(width: number, height: number) {
+  function update(
+    width: number,
+    height: number,
+    aspectRatio: number | null = settings.aspectRatio ? width / height : null,
+  ) {
     if (!validSize(width, height)) return;
     api.updateScene({
       elements: api.getSceneElementsIncludingDeleted().map((element) =>
@@ -1369,47 +1481,53 @@ function FrameSize({
           ? newElementWith(element, {
               width,
               height,
-              customData: withSlide(element.customData, {
-                aspectRatio: settings.aspectRatio ? width / height : null,
-              }),
+              customData: withSlide(element.customData, { aspectRatio }),
             })
           : element,
       ),
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
   }
+  const changed =
+    Math.round(size.width) !== Math.round(frame.width) ||
+    Math.round(size.height) !== Math.round(frame.height);
   return (
-    <details className="frame-size">
-      <summary>
-        Slide size · {Math.round(frame.width)} × {Math.round(frame.height)}
-      </summary>
-      <label className="inspector-field">
-        Aspect ratio
-        <select
-          className="inspector-select"
-          aria-label="Slide aspect ratio"
-          value={
-            slideSizes.find(
-              (option) =>
-                Math.abs(
-                  frame.width / frame.height - option.width / option.height,
-                ) < 0.001,
-            )?.label ?? "custom"
-          }
-          onChange={(event) => {
-            const option = slideSizes.find(
-              (option) => option.label === event.target.value,
-            );
-            if (option)
-              resize(frame.width, (frame.width * option.height) / option.width);
-          }}
-        >
-          {slideSizes.map((option) => (
-            <option key={option.label}>{option.label}</option>
-          ))}
-          <option value="custom">Custom</option>
-        </select>
-      </label>
+    <Field
+      label="Size"
+      action={
+        <label className="inspector-check small">
+          <input
+            type="checkbox"
+            checked={!!settings.aspectRatio}
+            onChange={(event) =>
+              update(
+                frame.width,
+                frame.height,
+                event.target.checked ? frame.width / frame.height : null,
+              )
+            }
+          />
+          Lock ratio
+        </label>
+      }
+    >
+      <select
+        className="inspector-select"
+        aria-label="Slide aspect ratio"
+        value={presetOf(frame)}
+        onChange={(event) => {
+          const option = slideSizes.find(
+            (option) => option.label === event.target.value,
+          );
+          if (option)
+            update(frame.width, (frame.width * option.height) / option.width);
+        }}
+      >
+        {slideSizes.map((option) => (
+          <option key={option.label}>{option.label}</option>
+        ))}
+        <option value="custom">Custom</option>
+      </select>
       <SizeInputs
         {...size}
         onChange={(next) => {
@@ -1420,41 +1538,17 @@ function FrameSize({
           }
           setSize(next);
         }}
-      />
-      <button
-        className="slides-button"
-        disabled={!validSize(size.width, size.height)}
-        onClick={() => resize(size.width, size.height)}
       >
-        Apply size
-      </button>
-      <label className="inspector-check">
-        <input
-          type="checkbox"
-          checked={!!settings.aspectRatio}
-          onChange={(event) => {
-            api.updateScene({
-              elements: api.getSceneElementsIncludingDeleted().map((element) =>
-                element.id === frame.id
-                  ? newElementWith(element, {
-                      customData: withSlide(element.customData, {
-                        aspectRatio: event.target.checked
-                          ? frame.width / frame.height
-                          : null,
-                      }),
-                    })
-                  : element,
-              ),
-              captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-            });
-          }}
-        />
-        Lock aspect ratio
-      </label>
-      <p className="hint">
-        Resizes the frame. Contents keep their size and position.
-      </p>
-    </details>
+        <button
+          className="slides-button"
+          disabled={!changed || !validSize(size.width, size.height)}
+          onClick={() => update(size.width, size.height)}
+          title="Resize the frame. Its contents keep their size and position."
+        >
+          Apply
+        </button>
+      </SizeInputs>
+    </Field>
   );
 }
 
@@ -1665,7 +1759,9 @@ function SlidePreview({
           <Icon name="previous" size={14} />
         </button>
         <span role="status" aria-live="polite">
-          Step {level} of {slide.steps.length}
+          {level === 0
+            ? "Before step 1"
+            : `Step ${level} of ${slide.steps.length}`}
         </span>
         <button
           className="icon-button"
@@ -1675,113 +1771,8 @@ function SlidePreview({
         >
           <Icon name="next" size={14} />
         </button>
-        <button
-          className="slides-button"
-          aria-label="Restart reveal preview"
-          onClick={() => setStep(0)}
-        >
-          Restart
-        </button>
       </div>
-      <p className="hint">
-        {level === 0
-          ? "Before the first click"
-          : `Shown through reveal step ${level}`}
-      </p>
     </div>
-  );
-}
-
-function SlideActions({
-  name,
-  onNew,
-  onDuplicate,
-  onRename,
-  onDelete,
-}: {
-  name: string;
-  onNew: () => void;
-  onDuplicate: () => void;
-  onRename: (name: string) => void;
-  onDelete: () => void;
-}) {
-  const [renaming, setRenaming] = useState(false);
-  const [draft, setDraft] = useState(name);
-  const menu = useRef<HTMLDetailsElement>(null);
-  function act(action: () => void) {
-    if (menu.current) menu.current.open = false;
-    action();
-  }
-  if (renaming)
-    return (
-      <form
-        className="slide-rename"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (draft.trim()) {
-            onRename(draft.trim());
-            setRenaming(false);
-          }
-        }}
-      >
-        <input
-          className="inspector-select"
-          aria-label="Slide name"
-          autoFocus
-          maxLength={200}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              setRenaming(false);
-            }
-          }}
-        />
-        <button
-          className="icon-button"
-          type="submit"
-          aria-label="Save slide name"
-          disabled={!draft.trim()}
-        >
-          <Icon name="save" size={14} />
-        </button>
-        <button
-          className="icon-button"
-          type="button"
-          aria-label="Cancel rename"
-          onClick={() => setRenaming(false)}
-        >
-          <Icon name="close" size={14} />
-        </button>
-      </form>
-    );
-  return (
-    <details className="slide-actions" ref={menu}>
-      <summary aria-label={`Actions for ${name}`}>Slide actions</summary>
-      <div className="slide-action-buttons">
-        <button className="slides-button" onClick={() => act(onNew)}>
-          New after
-        </button>
-        <button className="slides-button" onClick={() => act(onDuplicate)}>
-          Duplicate
-        </button>
-        <button
-          className="slides-button"
-          onClick={() =>
-            act(() => {
-              setDraft(name);
-              setRenaming(true);
-            })
-          }
-        >
-          Rename
-        </button>
-        <button className="slides-button" onClick={() => act(onDelete)}>
-          Delete
-        </button>
-      </div>
-    </details>
   );
 }
 
@@ -1886,8 +1877,7 @@ function SlideAlignment({
     });
   }
   return (
-    <details className="slide-alignment">
-      <summary>Align selection to slide</summary>
+    <Field label="Align selection to safe area">
       <div className="slide-align-buttons">
         {["left", "center", "right", "top", "middle", "bottom"].map((value) => (
           <button
@@ -1895,178 +1885,129 @@ function SlideAlignment({
             key={value}
             disabled={!targets.length}
             onClick={() => align(value)}
+            title={
+              targets.length
+                ? undefined
+                : "Select objects on this slide to align them"
+            }
           >
             {value[0].toUpperCase() + value.slice(1)}
           </button>
         ))}
       </div>
-      <p className="hint">
-        Select objects to align them within the safe margins. Multiple objects
-        move together.
-      </p>
-    </details>
+    </Field>
   );
 }
 
-function DeckDefaultsEditor({
+function DeckSettings({
   deck,
   onChange,
   onApply,
-  disabled,
+  hasSlides,
 }: {
   deck: DeckDefaults;
   onChange: (patch: Partial<DeckDefaults>) => void;
   onApply: (kind: "size" | "transition" | "effect") => void;
-  disabled: boolean;
+  hasSlides: boolean;
 }) {
-  const [size, setSize] = useState(deck.size ?? { width: 1600, height: 900 });
+  const [custom, setCustom] = useState(false);
+  const [size, setSize] = useState(deck.size ?? DEFAULT_SIZE);
   useEffect(() => {
     if (deck.size) setSize(deck.size);
   }, [deck.size?.width, deck.size?.height]);
+  const preset = !deck.size
+    ? "auto"
+    : custom
+      ? "custom"
+      : (slideSizes.find(
+          (option) =>
+            option.width === deck.size!.width &&
+            option.height === deck.size!.height,
+        )?.label ?? "custom");
+  const applyAll = (kind: "size" | "transition" | "effect", disabled = false) => (
+    <button
+      className="link-button"
+      disabled={!hasSlides || disabled}
+      onClick={() => onApply(kind)}
+    >
+      Apply to all
+    </button>
+  );
   return (
-    <details className="deck-defaults">
-      <summary>Deck defaults</summary>
+    <section className="deck-settings" aria-label="Deck settings">
       <p className="hint">
-        Used for new slides and new animations. Apply to all to update existing
-        slides.
+        Defaults for new slides and reveal steps. Apply to all to update
+        existing ones.
       </p>
-      <label className="inspector-check">
-        <input
-          type="checkbox"
-          checked={!!deck.size}
-          onChange={(event) =>
-            onChange({
-              size: event.target.checked
-                ? validSize(size.width, size.height)
-                  ? size
-                  : { width: 1600, height: 900 }
-                : null,
-            })
-          }
-        />
-        Use a default slide size
-      </label>
-      {deck.size && (
-        <>
-          <label className="inspector-field">
-            Default slide size
-            <select
-              className="inspector-select"
-              aria-label="Default slide size"
-              value={
-                slideSizes.find(
-                  (option) =>
-                    option.width === deck.size?.width &&
-                    option.height === deck.size?.height,
-                )?.label ?? "custom"
+      <Field label="Slide size" action={applyAll("size", !deck.size)}>
+        <select
+          className="inspector-select"
+          aria-label="Default slide size"
+          value={preset}
+          onChange={(event) => {
+            const value = event.target.value;
+            setCustom(value === "custom");
+            if (value === "auto") onChange({ size: null });
+            const option = slideSizes.find((option) => option.label === value);
+            if (option)
+              onChange({ size: { width: option.width, height: option.height } });
+          }}
+        >
+          <option value="auto">Same as selected slide</option>
+          {slideSizes.map((option) => (
+            <option key={option.label}>{option.label}</option>
+          ))}
+          <option value="custom">Custom</option>
+        </select>
+        {preset === "custom" && (
+          <SizeInputs {...size} onChange={setSize}>
+            <button
+              className="slides-button"
+              disabled={
+                !validSize(size.width, size.height) ||
+                (size.width === deck.size?.width &&
+                  size.height === deck.size?.height)
               }
-              onChange={(event) => {
-                const option = slideSizes.find(
-                  (option) => option.label === event.target.value,
-                );
-                if (option)
-                  onChange({
-                    size: { width: option.width, height: option.height },
-                  });
-              }}
+              onClick={() => onChange({ size })}
             >
-              {slideSizes.map((option) => (
-                <option key={option.label}>{option.label}</option>
-              ))}
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-          <SizeInputs {...size} onChange={setSize} />
-          <button
-            className="slides-button"
-            disabled={!validSize(size.width, size.height)}
-            onClick={() => onChange({ size })}
-          >
-            Set default size
-          </button>
-          <button
-            className="slides-button"
-            disabled={disabled}
-            onClick={() => onApply("size")}
-          >
-            Apply size to all slides
-          </button>
-          <p className="hint">
-            Changes frame dimensions. Contents keep their size and position.
-          </p>
-        </>
-      )}
-      <label className="inspector-field">
-        Default transition
-        <select
-          className="inspector-select"
-          aria-label="Default transition"
+              Set
+            </button>
+          </SizeInputs>
+        )}
+      </Field>
+      <Field label="Transition" action={applyAll("transition")}>
+        <Segmented
+          label="Default transition"
           value={deck.transition}
-          onChange={(event) =>
-            onChange({
-              transition: event.target.value as DeckDefaults["transition"],
-            })
-          }
-        >
-          {transitions.map((value) => (
-            <option key={value} value={value}>
-              {transitionLabels[value]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="inspector-field">
-        Default speed
-        <select
-          className="inspector-select"
-          aria-label="Default transition speed"
-          value={deck.duration}
-          disabled={deck.transition === "cut"}
-          onChange={(event) =>
-            onChange({ duration: Number(event.target.value) })
-          }
-        >
-          {!speeds.some((speed) => speed.duration === deck.duration) && (
-            <option value={deck.duration}>{deck.duration} ms</option>
-          )}
-          {speeds.map((speed) => (
-            <option key={speed.duration} value={speed.duration}>
-              {speed.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button
-        className="slides-button"
-        disabled={disabled}
-        onClick={() => onApply("transition")}
-      >
-        Apply transition to all slides
-      </button>
-      <label className="inspector-field">
-        Default animation effect
-        <select
-          className="inspector-select"
-          aria-label="Default animation effect"
+          options={transitions.map((value) => ({
+            value,
+            label: transitionLabels[value],
+          }))}
+          onChange={(transition) => onChange({ transition })}
+        />
+        {deck.transition !== "cut" && (
+          <Segmented
+            label="Default transition speed"
+            value={deck.duration}
+            options={speeds.map(({ label, duration }) => ({
+              value: duration,
+              label,
+            }))}
+            onChange={(duration) => onChange({ duration })}
+          />
+        )}
+      </Field>
+      <Field label="Reveal effect" action={applyAll("effect")}>
+        <Segmented
+          label="Default reveal effect"
           value={deck.effect}
-          onChange={(event) =>
-            onChange({ effect: event.target.value as Effect })
-          }
-        >
-          {effects.map((value) => (
-            <option key={value} value={value}>
-              {effectLabels[value]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button
-        className="slides-button"
-        disabled={disabled}
-        onClick={() => onApply("effect")}
-      >
-        Apply effect to all reveal steps
-      </button>
-    </details>
+          options={effects.map((value) => ({
+            value,
+            label: effectLabels[value],
+          }))}
+          onChange={(effect) => onChange({ effect })}
+        />
+      </Field>
+    </section>
   );
 }
