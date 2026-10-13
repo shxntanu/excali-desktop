@@ -46,11 +46,13 @@ Drawings live in `~/.excali-desktop`. The sidebar shows that folder as a tree of
 
 ### Presentations
 
-Every frame is a slide. Draw frames with the frame tool (F), then press **Present** (⇧⌘P / Shift+Ctrl+P) in the sidebar or the play button at the top right of the canvas.
+Every frame is a slide. Use **New slide** in the slides panel for a preset frame, or draw frames with the frame tool (F), then press **Present** (⇧⌘P / Shift+Ctrl+P) in the sidebar or the play button at the top right of the canvas.
 
 - **Slides** at the top right of the canvas opens the slides panel: drag thumbnails, or use ⌥↑/⌥↓ on a focused one, to reorder them. Click a slide to go to it; double-click to present from it.
+- **New slide ▾** offers 16:9, 16:10, 4:3, and custom dimensions, and remembers the last size. **Slide size** changes an existing frame without stretching its contents; **Lock aspect ratio** keeps its proportions when resizing. The freeform frame tool remains available.
 - With a slide or anything on it selected, the panel sets how the slide comes in (**Move** flies the camera across the canvas, **Dissolve** crossfades, **Cut** is instant), the speed, and whether to skip it when presenting.
-- **Builds** reveal a slide one step at a time. Select elements on a slide and pick a build number; elements with the same number appear together, with a Fade, Rise, or Appear effect. The build list selects a build's elements and moves builds earlier or later.
+- **Animations** shows builds by object label. Select objects and choose **Reveal together** or **Reveal separately**, or assign them to an existing build. Each row selects its objects, changes its effect, and removes its animation. Drag rows, use their arrow buttons, or press ⌥↑/⌥↓ on a focused row to reorder builds. Bound text follows its container.
+- **Preview** plays builds inside the panel without editing the drawing. Previous/next, Restart, and ←/→/Home/End step through the reveals. Optional numbered canvas badges show build order and select their objects.
 - While presenting: → / Space / Enter or a click goes to the next build or slide, ← / Backspace or a right-click goes back, ⇧→/⇧← skip whole slides, Home/End jump to the ends, a number followed by Enter jumps to that slide, L toggles the laser pointer, B or W blanks the screen, ? lists the shortcuts, and Esc ends the presentation.
 
 Slides are shown fullscreen and letterboxed to each frame's shape. Slide order, transitions, and builds are saved in the drawing (in the elements' `customData`), so they travel with the file; excalidraw.com ignores them. Presenting never modifies the drawing. With reduced motion turned on in the system settings, transitions and builds are instant.

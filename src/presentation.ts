@@ -69,7 +69,8 @@ export function readSlide(frame: SceneElement): SlideSettings {
     duration: finite(raw.duration)
       ? Math.min(Math.max(raw.duration, 0), 5000)
       : 800,
-    aspectRatio: finite(raw.aspectRatio) && raw.aspectRatio > 0 ? raw.aspectRatio : null,
+    aspectRatio:
+      finite(raw.aspectRatio) && raw.aspectRatio > 0 ? raw.aspectRatio : null,
   };
 }
 
@@ -353,8 +354,13 @@ export const slideSizes = [
 ];
 
 // Keep the opposite edge anchored when a locked frame is resized from its top or left.
-export function lockedFrameBounds(previous: Bounds, next: Bounds, ratio: number): Bounds {
-  const widthDriven = Math.abs(next.width / previous.width - 1) >=
+export function lockedFrameBounds(
+  previous: Bounds,
+  next: Bounds,
+  ratio: number,
+): Bounds {
+  const widthDriven =
+    Math.abs(next.width / previous.width - 1) >=
     Math.abs(next.height / previous.height - 1);
   const width = widthDriven ? next.width : next.height * ratio;
   const height = width / ratio;
@@ -367,31 +373,99 @@ export function lockedFrameBounds(previous: Bounds, next: Bounds, ratio: number)
 }
 
 // Bound labels are controlled by their container, including when only the label is selected.
-export function buildTargets<T extends SceneElement>(slide: Slide<T>, selected: readonly T[]): T[] {
-  const members = new Map(slide.elements.map((element) => [element.id, element]));
+export function buildTargets<T extends SceneElement>(
+  slide: Slide<T>,
+  selected: readonly T[],
+): T[] {
+  const members = new Map(
+    slide.elements.map((element) => [element.id, element]),
+  );
   const objects = selected.filter((element) => !isFrame(element));
   if (objects.some((element) => !members.has(element.id))) return [];
-  return [...new Map(objects.map((element) => {
-    const owner = (element.containerId && members.get(element.containerId)) || element;
-    return [owner.id, owner];
-  })).values()];
+  return [
+    ...new Map(
+      objects.map((element) => {
+        const owner =
+          (element.containerId && members.get(element.containerId)) || element;
+        return [owner.id, owner];
+      }),
+    ).values(),
+  ];
 }
 
-export function buildOwners<T extends SceneElement>(slide: Slide<T>, step: number): T[] {
+export function buildOwners<T extends SceneElement>(
+  slide: Slide<T>,
+  step: number,
+): T[] {
   return slide.elements.filter((element) => readBuild(element)?.step === step);
 }
 
-export function reorderBuilds<T extends SceneElement>(slide: Slide<T>, from: number, to: number) {
+export function reorderBuilds<T extends SceneElement>(
+  slide: Slide<T>,
+  from: number,
+  to: number,
+) {
   const order = move(slide.steps, from, to);
-  return new Map(slide.elements.flatMap((element) => {
-    const build = readBuild(element);
-    return build ? [[element.id, withBuild(element.customData, { ...build, step: order.indexOf(build.step) + 1 })] as const] : [];
-  }));
+  return new Map(
+    slide.elements.flatMap((element) => {
+      const build = readBuild(element);
+      return build
+        ? [
+            [
+              element.id,
+              withBuild(element.customData, {
+                ...build,
+                step: order.indexOf(build.step) + 1,
+              }),
+            ] as const,
+          ]
+        : [];
+    }),
+  );
 }
 
-export function buildLabel<T extends SceneElement>(slide: Slide<T>, element: T): string {
+export function buildLabel<T extends SceneElement>(
+  slide: Slide<T>,
+  element: T,
+): string {
   const text = element as T & { text?: string };
-  const bound = slide.elements.find((member) => member.containerId === element.id) as (T & { text?: string }) | undefined;
-  return (text.text || bound?.text)?.replace(/\s+/g, " ").trim() ||
-    ({ rectangle: "Rectangle", ellipse: "Ellipse", diamond: "Diamond", arrow: "Arrow", line: "Line", freedraw: "Drawing", image: "Image", text: "Text", embeddable: "Embed" }[element.type] ?? "Object");
+  const bound = slide.elements.find(
+    (member) => member.containerId === element.id,
+  ) as (T & { text?: string }) | undefined;
+  return (
+    (text.text || bound?.text)?.replace(/\s+/g, " ").trim() ||
+    ({
+      rectangle: "Rectangle",
+      ellipse: "Ellipse",
+      diamond: "Diamond",
+      arrow: "Arrow",
+      line: "Line",
+      freedraw: "Drawing",
+      image: "Image",
+      text: "Text",
+      embeddable: "Embed",
+    }[element.type] ??
+      "Object")
+  );
+}
+
+// Presentation appearance is computed from copies; the authored opacity and position stay intact.
+export function buildAppearance(
+  slide: Pick<Slide, "ranks" | "effects">,
+  element: SceneElement & { opacity: number },
+  step: number,
+  progress = 1,
+  rise = 28,
+) {
+  const rank = slide.ranks.get(element.id) ?? 0;
+  const effect = slide.effects.get(element.id);
+  if (rank > step) return { opacity: 0, y: element.y };
+  if (rank > 0 && rank === step && effect !== "appear" && progress < 1) {
+    const eased = easeOut(progress);
+    return {
+      opacity: element.opacity * eased,
+      y: element.y + (effect === "rise" ? (1 - eased) * rise : 0),
+    };
+  }
+  return { opacity: element.opacity, y: element.y };
 }

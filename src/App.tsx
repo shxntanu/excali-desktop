@@ -238,7 +238,7 @@ export default function App() {
           return newElementWith(element, lockedFrameBounds(before, element, ratio));
         });
         if (changed) {
-          doc.api.updateScene({ elements: resized, captureUpdate: CaptureUpdateAction.NEVER });
+          doc.api.updateScene({ elements: resized, captureUpdate: CaptureUpdateAction.EVENTUALLY });
           return;
         }
       }
