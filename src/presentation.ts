@@ -9,6 +9,7 @@ export type SlideSettings = {
   hidden: boolean;
   transition: Transition;
   duration: number;
+  aspectRatio: number | null;
 };
 export type Build = { step: number; effect: Effect };
 
@@ -68,6 +69,7 @@ export function readSlide(frame: SceneElement): SlideSettings {
     duration: finite(raw.duration)
       ? Math.min(Math.max(raw.duration, 0), 5000)
       : 800,
+    aspectRatio: finite(raw.aspectRatio) && raw.aspectRatio > 0 ? raw.aspectRatio : null,
   };
 }
 
@@ -341,5 +343,25 @@ export function cameraPath(
       uy0 + u * dy,
       (w0 * cosh0) / Math.cosh(rho * s + r0),
     );
+  };
+}
+
+export const slideSizes = [
+  { label: "16:9", width: 1600, height: 900 },
+  { label: "16:10", width: 1600, height: 1000 },
+  { label: "4:3", width: 1200, height: 900 },
+];
+
+// Keep the opposite edge anchored when a locked frame is resized from its top or left.
+export function lockedFrameBounds(previous: Bounds, next: Bounds, ratio: number): Bounds {
+  const widthDriven = Math.abs(next.width / previous.width - 1) >=
+    Math.abs(next.height / previous.height - 1);
+  const width = widthDriven ? next.width : next.height * ratio;
+  const height = width / ratio;
+  return {
+    x: next.x === previous.x ? next.x : next.x + next.width - width,
+    y: next.y === previous.y ? next.y : next.y + next.height - height,
+    width,
+    height,
   };
 }

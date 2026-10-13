@@ -1025,3 +1025,14 @@ kbd {
     animation: none !important;
   }
 }
+
+.new-slide, .slide-size-options { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.slide-create-row { display: flex; gap: 4px; }
+.slide-create-row > :first-child { flex: 1; }
+.slide-size-options { padding: 8px 0; }
+.slide-dimensions { display: flex; gap: 8px; }
+.slide-dimensions label { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; font-size: 12px; }
+.slide-dimensions input { width: 100%; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--island); color: var(--text); }
+.frame-size summary { cursor: pointer; font-size: 12px; }
+.frame-size[open] > :not(summary) { margin-top: 10px; }
+.slides-button:disabled { opacity: 0.4; cursor: default; }

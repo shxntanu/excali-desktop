@@ -11,6 +11,7 @@ import {
   Excalidraw,
   FONT_FAMILY,
   hashElementsVersion,
+  newElementWith,
   loadFromBlob,
   MainMenu,
   CaptureUpdateAction,
@@ -39,7 +40,7 @@ import {
 } from "./document";
 import { cssFamily, fontId, lineHeight, type SystemFont } from "./fonts";
 import { Icon, type IconName } from "./icons";
-import { getSlides, withSlide, withBuild, fit } from "./presentation";
+import { getSlides, withSlide, withBuild, fit, isFrame, readSlide, lockedFrameBounds, type SceneElement } from "./presentation";
 import { applyView, convert, patchElements } from "./mcp-editor";
 import { parseElements, slidesSchema, slideSkeletons, settingsSchema, buildSchema, filesSchema } from "./mcp-schema";
 import Presenter from "./Presenter";
@@ -82,6 +83,7 @@ type Doc = {
   api: ExcalidrawImperativeAPI | null;
   fingerprint: string | null;
   revision: number;
+  frames: Map<string, SceneElement>;
   timer: ReturnType<typeof setTimeout> | null;
   // What recovery holds for this drawing; only set while it has unsaved edits.
   snapshot: string | null;
@@ -102,6 +104,7 @@ function createDoc(
     api: null,
     fingerprint: null,
     revision: 0,
+    frames: new Map(),
     timer: null,
     snapshot: null,
   };
@@ -222,6 +225,23 @@ export default function App() {
   const onChange =
     (doc: Doc): NonNullable<ExcalidrawProps["onChange"]> =>
     (elements, appState) => {
+      const previous = doc.frames;
+      doc.frames = new Map(elements.filter(isFrame).map((element) => [element.id, element]));
+      if (appState.isResizing && doc.api) {
+        let changed = false;
+        const resized = elements.map((element) => {
+          const before = previous.get(element.id);
+          const ratio = isFrame(element) ? readSlide(element).aspectRatio : null;
+          if (!before || !ratio || !appState.selectedElementIds[element.id] ||
+              Math.abs(element.width / Math.max(element.height, 1) - ratio) < 0.0001) return element;
+          changed = true;
+          return newElementWith(element, lockedFrameBounds(before, element, ratio));
+        });
+        if (changed) {
+          doc.api.updateScene({ elements: resized, captureUpdate: CaptureUpdateAction.NEVER });
+          return;
+        }
+      }
       // Selection and panning are not document edits. No scene copies in React state.
       const next = `${hashElementsVersion(elements)}:${appState.viewBackgroundColor}:${appState.gridSize}:${appState.gridStep}:${appState.gridModeEnabled}`;
       if (doc.fingerprint === null) {
