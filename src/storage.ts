@@ -47,9 +47,9 @@ export const readLinked = () => invoke<LinkedDocument[]>("linked_documents");
 export const forgetDocument = (path: string) => invoke<void>("forget_document", { path });
 export const renameEntry = (path: string, name: string) => invoke<string>("rename_entry", { path, name });
 export const deleteEntry = (path: string) => invoke<void>("delete_entry", { path });
-export function createDrawing(folder: string, data: string) {
+export function createDrawing(folder: string, data: string, name?: string) {
   validateDrawing(data);
-  return invoke<string>("create_drawing", { folder, data });
+  return invoke<string>("create_drawing", { folder, data, name });
 }
 
 // The browser preview has no font list, so it offers only Excalidraw's bundled fonts.

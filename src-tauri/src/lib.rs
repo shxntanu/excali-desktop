@@ -1,3 +1,4 @@
+mod mcp;
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
@@ -187,10 +188,16 @@ async fn create_drawing(
     app: tauri::AppHandle,
     folder: String,
     data: String,
+    name: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let folder = workspace_folder(&workspace_root(&app)?, &folder)?;
-        let path = unique_path(&folder, "Untitled", Some(EXTENSION));
+        let base = valid_name(name.as_deref().unwrap_or("Untitled"))?;
+        let path = unique_path(
+            &folder,
+            base.strip_suffix(".excalidraw").unwrap_or(base),
+            Some(EXTENSION),
+        );
         atomic_write(&path, &data)?;
         Ok(path.to_string_lossy().into_owned())
     })
@@ -669,6 +676,7 @@ pub fn run() {
         .manage(Documents::default())
         .manage(Closing::default())
         .manage(Linked::default())
+        .manage(mcp::Bridge::default())
         .plugin(tauri_plugin_dialog::init())
         .menu(app_menu)
         .on_menu_event(|app, event| {
@@ -682,6 +690,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            mcp::start_mcp,
+            mcp::mcp_reply,
             open_document,
             save_document,
             read_recovery,

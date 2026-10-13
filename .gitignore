@@ -6,3 +6,4 @@ public/fonts/
 .DS_Store
 *.local
 *.tsbuildinfo
+src-tauri/resources/mcp.js

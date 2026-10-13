@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.excali.desktop",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "bun run build:mcp && bun run dev",
     "devUrl": "http://127.0.0.1:5173",
     "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
@@ -30,5 +30,5 @@
       "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost; worker-src 'self' blob:; frame-src 'none'; object-src 'none'"
     }
   },
-  "bundle": { "active": true, "targets": ["app"], "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"], "category": "GraphicsAndDesign", "shortDescription": "Offline Excalidraw editor" }
+  "bundle": { "resources": { "resources/mcp.js": "mcp.js" }, "active": true, "targets": ["app"], "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"], "category": "GraphicsAndDesign", "shortDescription": "Offline Excalidraw editor" }
 }

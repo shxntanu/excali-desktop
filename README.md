@@ -95,3 +95,79 @@ The small tests cover invalid-document rejection, ordered recovery writes after 
 No document version history, sync, or account system yet. Presentations have no presenter view or speaker notes, and slides can't be exported to PDF. Deleting and moving drawings is done in Finder for now; the sidebar refreshes when the window regains focus. Files modified externally are not watched; saving will replace the current file. The core editor and fonts are local; the production content-security policy blocks remote resources and embedded web pages.
 
 Excalidraw and the other dependencies retain their respective licenses. This wrapper is not an official Excalidraw application.
+
+## Agents and MCP
+
+The desktop app exposes a local MCP server over **stdio**, using the official
+[Excalidraw MCP](https://github.com/excalidraw/excalidraw-mcp) element format and
+reference instructions, extended with desktop documents and presentations.
+Keep Excali Desktop open while your agents work. Bun 1.4+ runs the server.
+
+Add this to an agent client's MCP configuration (use your absolute paths):
+
+```json
+{
+  "mcpServers": {
+    "excali-desktop": {
+      "command": "/absolute/path/to/bun",
+      "args": ["/absolute/path/to/excali-desktop/scripts/mcp.ts"]
+    }
+  }
+}
+```
+
+Run `which bun` to find the executable. The installed macOS app also includes
+an independent server bundle; replace the script argument with
+`/Users/YOUR_NAME/Applications/Excali Desktop.app/Contents/Resources/mcp.js`.
+The bundle includes its dependencies and instructions, so this option does
+not require the source checkout. Rebuild the desktop app to include it.
+For development, `bun run mcp` starts the stdio server; it waits for an MCP
+client rather than accepting interactive commands.
+
+Ask an agent: “Use excali-desktop to draw our architecture, then create a
+five-slide presentation explaining it and save the drawing.”
+
+| Tools | Purpose |
+| --- | --- |
+| `read_me`, `create_view` | Official element reference and compact diagram creation |
+| `list_documents`, `get_scene`, `read_checkpoint` | Open tabs, live elements, embedded images, and manual edits |
+| `update_elements` | Undoable element edits and deletion |
+| `create_slides`, `update_slide` | Frame-based slides, order, transitions, visibility, and build steps |
+| `list_drawings`, `open_drawing`, `save_document` | Workspace discovery, opening, and atomic saves |
+| `import_drawing`, `add_files` | Portable drawing imports and embedded base64 images |
+| `export_scene` | SVG or PNG of a drawing or an individual slide |
+
+The server also exposes `excali://reference` and `excali://active` resources,
+and a `create-presentation` prompt. It works with clients that support standard
+MCP tools; MCP Apps support is not required.
+
+`create_view` creates a new tab unless its elements begin with
+`{"type":"restoreCheckpoint","id":"CHECKPOINT_ID"}`. A returned
+`checkpointId` is the same as the live `documentId`, scoped to this app
+session. Restoring edits the live tab, including your manual edits; read
+`get_scene` first. IDs expire when their tab closes or the app restarts.
+The official `delete` and `cameraUpdate` pseudo-elements are supported.
+The final camera is applied immediately; the upstream chat widget and
+streaming animation are replaced by the desktop editor.
+
+`create_slides` takes slides with a title, optional dimensions (default
+1280×720), settings, and compact Excalidraw elements. Element coordinates are
+relative to each slide. A title is placed at (64,48); put body content below
+y=120. Pass `documentId` to append slides to a drawing. For a build, set an
+element's `customData` to `{"build":{"step":1,"effect":"rise"}}`.
+`update_slide` can change those builds and the frame's saved slide settings.
+
+Agent changes remain unsaved until `save_document` or your Save command runs.
+They participate in crash recovery; edits to an existing tab are undoable.
+New saves use a unique name in `~/.excali-desktop`, so a name collision never
+overwrites a different drawing. Existing tabs save back to their current
+file. Agent opening is limited to drawings listed in the workspace; it never
+opens a native file dialog. File operations and presentation mode reject
+agent requests while the editor is busy.
+
+The desktop bridge listens only on `127.0.0.1`, uses a new bearer token on
+launch, rejects browser-origin requests, and records its connection in
+`~/.excali-desktop/.app/mcp.json` (owner-only permissions on Unix). The stdio
+server discovers that connection automatically. There is no public upload or
+network service dependency. The hosted official MCP server does not connect
+to your desktop app; configure this adapter to work on local documents.

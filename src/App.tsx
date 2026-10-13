@@ -13,6 +13,9 @@ import {
   hashElementsVersion,
   loadFromBlob,
   MainMenu,
+  CaptureUpdateAction,
+  exportToBlob,
+  exportToSvg,
   serializeAsJSON,
 } from "@excalidraw/excalidraw";
 import type {
@@ -36,7 +39,9 @@ import {
 } from "./document";
 import { cssFamily, fontId, lineHeight, type SystemFont } from "./fonts";
 import { Icon, type IconName } from "./icons";
-import { getSlides } from "./presentation";
+import { getSlides, withSlide, withBuild, fit } from "./presentation";
+import { applyView, convert, patchElements } from "./mcp-editor";
+import { parseElements, slidesSchema, slideSkeletons, settingsSchema, buildSchema, filesSchema } from "./mcp-schema";
 import Presenter from "./Presenter";
 import { SlidesPanel, SlidesTrigger } from "./SlidesPanel";
 import {
@@ -70,6 +75,7 @@ type Presentation = Pick<
 // An open drawing. Async file flows read these fields after awaits, so they live outside React state.
 type Doc = {
   id: number;
+  mcpId: string;
   path: string | null;
   dirty: boolean;
   data: ExcalidrawInitialDataState | null;
@@ -89,6 +95,7 @@ function createDoc(
 ): Doc {
   return {
     id: ++lastId,
+    mcpId: crypto.randomUUID(),
     path,
     dirty: false,
     data,
@@ -307,6 +314,7 @@ export default function App() {
     const doc = createDoc(data, path);
     list.splice(replace ? index : index + 1, replace ? 1 : 0, doc);
     activate(doc);
+    return doc;
   }
 
   // Shows a drawing, switching to its tab when it is already open.
@@ -495,6 +503,171 @@ export default function App() {
       });
     },
   };
+
+  const mcpHandler = useRef<(method: string, params: any) => Promise<unknown>>(async () => { throw new Error("Editor is loading"); });
+  mcpHandler.current = async (method, params) => {
+    if (!ready || busyRef.current || presenting.current || resolvePrompt.current)
+      throw new Error("Editor is busy. Finish the current operation or presentation, then retry.");
+    const target = (id?: string) => {
+      const doc = id ? docs.current.find((doc) => doc.mcpId === id) : current();
+      if (!doc) throw new Error("Document not found. Use list_documents for current IDs.");
+      return doc;
+    };
+    const drawing = (doc: Doc): any => doc.api ? JSON.parse(serialize(doc)) : {
+      type: "excalidraw", version: 2, source: "excali-desktop", elements: doc.data?.elements ?? [],
+      appState: doc.data?.appState ?? {}, files: doc.data?.files ?? {},
+    };
+    const describe = (doc: Doc) => ({ documentId: doc.mcpId, checkpointId: doc.mcpId, path: doc.path, dirty: doc.dirty });
+    const scene = (doc: Doc) => ({ ...describe(doc), ...drawing(doc) });
+    const changed = async (doc: Doc) => {
+      doc.dirty = true;
+      doc.revision += 1;
+      stopTimer(doc);
+      doc.snapshot = JSON.stringify(drawing(doc));
+      render();
+      await writeSnapshots();
+    };
+    const waitForEditor = async (doc: Doc) => {
+      const deadline = Date.now() + 5000;
+      while (!doc.api && docs.current.includes(doc) && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      if (!doc.api) throw new Error("This tab is still loading. Retry shortly.");
+      return doc.api;
+    };
+    const update = async (doc: Doc, elements: ReturnType<typeof convert>) => {
+      await waitForEditor(doc);
+      if (!doc.api) throw new Error("Editor closed during the operation");
+      doc.api.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+      await changed(doc);
+    };
+    if (method === "list_documents") return { documents: docs.current.map(describe), activeDocumentId: current().mcpId };
+    if (method === "list_drawings") return readWorkspace();
+    if (method === "get_scene") return scene(target(params.documentId));
+    if (method === "read_checkpoint") return scene(target(params.id));
+    if (method === "open_drawing") {
+      // Agents can open only workspace files, never arbitrary paths or native dialogs.
+      const tree = await readWorkspace();
+      const find = (entries: Entry[]): boolean => entries.some((entry) => entry.folder ? find(entry.children) : entry.path === params.path);
+      if (!find(tree.entries)) throw new Error("Choose a drawing path returned by list_drawings");
+      await show(params.path);
+      return describe(current());
+    }
+    if (method === "import_drawing") {
+      validateDrawing(params.json);
+      const data = await loadFromBlob(new Blob([params.json], { type: "application/json" }), null, null);
+      const imported = addDoc(data, null);
+      await changed(imported);
+      await waitForEditor(imported);
+      return describe(imported);
+    }
+    if (method === "create_view") {
+      const input = parseElements(params.elements);
+      const checkpoint = input.find((element) => element.type === "restoreCheckpoint");
+      const doc = checkpoint ? target(checkpoint.id) : null;
+      const result = applyView(params.elements, doc ? drawing(doc).elements : []);
+      const view = current().api?.getAppState();
+      const camera = result.camera && view ? fit(result.camera, view) : null;
+      const destination = doc ?? addDoc({ elements: result.elements, appState: camera ? { scrollX: camera.scrollX, scrollY: camera.scrollY, zoom: { value: camera.zoom as any } } : undefined }, null);
+      if (doc) await update(doc, result.elements);
+      else { await changed(destination); await waitForEditor(destination); }
+      if (result.camera && destination.api) {
+        const state = destination.api.getAppState();
+        const camera = fit(result.camera, { width: state.width, height: state.height });
+        destination.api.updateScene({ appState: { scrollX: camera.scrollX, scrollY: camera.scrollY, zoom: { value: camera.zoom as any } }, captureUpdate: CaptureUpdateAction.NEVER });
+      }
+      return describe(destination);
+    }
+    if (method === "create_slides") {
+      const slides = slidesSchema.parse(params.slides);
+      const doc = params.documentId ? target(params.documentId) : null;
+      const existing = doc ? drawing(doc).elements : [];
+      const offset = getSlides(existing).length;
+      const startX = doc ? Math.max(0, ...existing.map((element: any) => element.x + element.width + 120)) : 0;
+      const added = convert(slideSkeletons(slides, offset, startX));
+      const existingIds = new Set(existing.map((element: any) => element.id));
+      if (added.some((element) => existingIds.has(element.id))) throw new Error("A slide element id already exists in this drawing");
+      const view = current().api?.getAppState();
+      const first = getSlides(added)[0]?.frame;
+      const camera = first && view ? fit(first, { width: view.width * 0.9, height: view.height * 0.9 }) : null;
+      const destination = doc ?? addDoc({ elements: added, appState: camera ? { scrollX: camera.scrollX, scrollY: camera.scrollY, zoom: { value: camera.zoom as any } } : undefined }, null);
+      if (doc) await update(doc, [...existing, ...added]);
+      else { await changed(destination); await waitForEditor(destination); }
+      return { ...describe(destination), slides: getSlides(added).map((slide) => ({ frameId: slide.frame.id, settings: slide.settings })) };
+    }
+    const doc = target(params.documentId);
+    if (method === "save_document") {
+      const data = JSON.stringify(drawing(doc));
+      const revision = doc.revision;
+      if (doc.path) await saveDocument(doc.path, data);
+      else {
+        // Create a unique file using the same native persistence as the Save button.
+        const tree = await readWorkspace();
+        doc.path = await createDrawing(tree.root, data, params.name);
+      }
+      if (doc.revision === revision) { doc.dirty = false; doc.snapshot = null; }
+      await writeSnapshots();
+      render();
+      await refresh();
+      return describe(doc);
+    }
+    await waitForEditor(doc);
+    if (!doc.api) throw new Error("Editor closed during the operation");
+    if (method === "add_files") {
+      const files = filesSchema.parse(params.files).map((file) => ({ ...file, created: file.created ?? Date.now() }));
+      doc.api.addFiles(files as Parameters<ExcalidrawImperativeAPI["addFiles"]>[0]);
+      await changed(doc);
+      return describe(doc);
+    }
+    const elements = doc.api.getSceneElements();
+    if (method === "update_elements") {
+      await update(doc, patchElements(elements, params.updates, params.deleteIds));
+      return describe(doc);
+    }
+    if (method === "update_slide") {
+      const slide = getSlides(elements).find((slide) => slide.frame.id === params.frameId);
+      if (!slide) throw new Error("Slide frame not found");
+      const updates: Record<string, any>[] = [{ id: slide.frame.id, customData: withSlide(slide.frame.customData, settingsSchema.parse(params.settings)) }];
+      for (const item of params.builds) {
+        const element = slide.elements.find((element) => element.id === item.elementId);
+        if (!element) throw new Error(`Element is not on this slide: ${item.elementId}`);
+        updates.push({ id: element.id, customData: withBuild(element.customData, item.build === null ? null : buildSchema.parse(item.build)) });
+      }
+      await update(doc, patchElements(elements, updates, []));
+      return describe(doc);
+    }
+    if (method === "export_scene") {
+      const slide = params.frameId ? getSlides(elements).find((slide) => slide.frame.id === params.frameId) : null;
+      if (params.frameId && !slide) throw new Error("Slide frame not found");
+      const options = { elements: slide ? [slide.frame, ...slide.elements] : elements, files: doc.api.getFiles(), appState: { ...doc.api.getAppState(), exportBackground: true, exportWithDarkMode: false }, exportingFrame: slide?.frame as any };
+      if (params.format === "svg") return { mimeType: "image/svg+xml", data: (await exportToSvg(options)).outerHTML };
+      const blob = await exportToBlob({ ...options, mimeType: "image/png" });
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.onerror = () => reject(new Error("Could not encode exported image"));
+        reader.readAsDataURL(blob);
+      });
+      return { mimeType: "image/png", data };
+    }
+    throw new Error(`Unknown desktop operation: ${method}`);
+  };
+
+  useEffect(() => {
+    if (!desktop || !ready) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<{ id: string; method: string; params: any }>("mcp-request", async ({ payload }) => {
+      let result: unknown;
+      try { result = await mcpHandler.current(payload.method, payload.params); }
+      catch (reason) { result = { error: reason instanceof Error ? reason.message : String(reason) }; }
+      await invoke("mcp_reply", { id: payload.id, result }).catch(report);
+    }).then(async (unlisten) => {
+      if (disposed) return unlisten();
+      stop = unlisten;
+      await invoke("start_mcp");
+    }).catch(report);
+    return () => { disposed = true; stop?.(); };
+  }, [ready]);
 
   function answer(choice: Choice) {
     dialog.current?.close();

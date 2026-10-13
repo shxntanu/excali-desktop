@@ -20,6 +20,8 @@ tempfile = "3"
 fontdb = "0.24"
 ttf-parser = "0.25"
 trash = "5.2.9"
+tiny_http = "0.12.0"
+uuid = { version = "1.28.0", features = ["v4"] }
 
 [profile.release]
 lto = true
