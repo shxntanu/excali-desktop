@@ -40,10 +40,36 @@ import {
   validateDrawing,
 } from "./document";
 import { Icon, type IconName } from "./icons";
-import { canDrop, dropFolder, orderedEntries, placeEntry, remapOrder, type DropTarget, type SidebarOrder } from "./sidebar";
-import { getSlides, withSlide, withBuild, fit, isFrame, readSlide, readDeck, withDeck, lockedFrameBounds, type SceneElement } from "./presentation";
+import {
+  canDrop,
+  dropFolder,
+  orderedEntries,
+  placeEntry,
+  remapOrder,
+  type DropTarget,
+  type SidebarOrder,
+} from "./sidebar";
+import {
+  getSlides,
+  withSlide,
+  withBuild,
+  fit,
+  isFrame,
+  readSlide,
+  readDeck,
+  withDeck,
+  lockedFrameBounds,
+  type SceneElement,
+} from "./presentation";
 import { applyView, convert, patchElements } from "./mcp-editor";
-import { parseElements, slidesSchema, slideSkeletons, settingsSchema, buildSchema, filesSchema } from "./mcp-schema";
+import {
+  parseElements,
+  slidesSchema,
+  slideSkeletons,
+  settingsSchema,
+  buildSchema,
+  filesSchema,
+} from "./mcp-schema";
 import Presenter from "./Presenter";
 import { SlidesPanel, SlidesTrigger } from "./SlidesPanel";
 import {
@@ -135,10 +161,22 @@ export default function App() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [order, setOrder] = useState<SidebarOrder>(() => {
     try {
-      const value = JSON.parse(localStorage.getItem("excali-sidebar-order") ?? "{}");
-      return value && typeof value === "object" && !Array.isArray(value) &&
-        Object.values(value).every((paths) => Array.isArray(paths) && paths.every((path) => typeof path === "string")) ? value : {};
-    } catch { return {}; }
+      const value = JSON.parse(
+        localStorage.getItem("excali-sidebar-order") ?? "{}",
+      );
+      return value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        Object.values(value).every(
+          (paths) =>
+            Array.isArray(paths) &&
+            paths.every((path) => typeof path === "string"),
+        )
+        ? value
+        : {};
+    } catch {
+      return {};
+    }
   });
   const [dragged, setDragged] = useState<Entry | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
@@ -180,8 +218,11 @@ export default function App() {
   }
 
   useEffect(() => {
-    try { localStorage.setItem("excali-sidebar-order", JSON.stringify(order)); }
-    catch (reason) { report(reason); }
+    try {
+      localStorage.setItem("excali-sidebar-order", JSON.stringify(order));
+    } catch (reason) {
+      report(reason);
+    }
   }, [order]);
 
   function followEntry(from: string, to: string) {
@@ -215,16 +256,23 @@ export default function App() {
     if (!workspace || renaming || !canDrop(entry, target)) return;
     void run(async () => {
       const destination = dropFolder(target);
-      const next = parentPath(entry.path) === destination ? entry.path : await moveEntry(entry.path, destination);
+      const next =
+        parentPath(entry.path) === destination
+          ? entry.path
+          : await moveEntry(entry.path, destination);
       followEntry(entry.path, next);
-      setOrder((previous) => placeEntry(previous, workspace.entries, entry.path, next, target));
-      if (destination !== workspace.root) setExpanded((previous) => new Set([...previous, destination]));
+      setOrder((previous) =>
+        placeEntry(previous, workspace.entries, entry.path, next, target),
+      );
+      if (destination !== workspace.root)
+        setExpanded((previous) => new Set([...previous, destination]));
       await refresh();
     });
   }
 
   useEffect(() => {
-    if (desktop) void getCurrentWindow().setTheme(themePreference).catch(report);
+    if (desktop)
+      void getCurrentWindow().setTheme(themePreference).catch(report);
   }, [themePreference]);
 
   function current() {
@@ -281,21 +329,49 @@ export default function App() {
   const onChange =
     (doc: Doc): NonNullable<ExcalidrawProps["onChange"]> =>
     (elements, appState) => {
+      // Viewport and selection updates need no frame processing or recovery work.
+      // Hash versions rather than array identity: Excalidraw also mutates elements in place.
+      const next = `${hashElementsVersion(elements)}:${appState.viewBackgroundColor}:${appState.gridSize}:${appState.gridStep}:${appState.gridModeEnabled}`;
+      if (next === doc.fingerprint) return;
       const previous = doc.frames;
-      doc.frames = new Map(elements.filter(isFrame).map((element) => [element.id, element]));
-      if (doc.fingerprint !== null && doc.api && elements.some((element) => !element.isDeleted && isFrame(element) && element.customData?.deck)) {
+      doc.frames = new Map(
+        elements.filter(isFrame).map((element) => [element.id, element]),
+      );
+      if (
+        doc.fingerprint !== null &&
+        doc.api &&
+        elements.some(
+          (element) =>
+            !element.isDeleted && isFrame(element) && element.customData?.deck,
+        )
+      ) {
         const deck = readDeck(elements);
         let added = false;
         const inherited = elements.map((element) => {
-          if (!isFrame(element) || element.isDeleted || previous.has(element.id) || element.customData?.deck) return element;
+          if (
+            !isFrame(element) ||
+            element.isDeleted ||
+            previous.has(element.id) ||
+            element.customData?.deck
+          )
+            return element;
           added = true;
-          return newElementWith(element, { customData: withDeck(withSlide(element.customData, {
-            transition: element.customData?.slide?.transition ?? deck.transition,
-            duration: element.customData?.slide?.duration ?? deck.duration,
-          }), deck) });
+          return newElementWith(element, {
+            customData: withDeck(
+              withSlide(element.customData, {
+                transition:
+                  element.customData?.slide?.transition ?? deck.transition,
+                duration: element.customData?.slide?.duration ?? deck.duration,
+              }),
+              deck,
+            ),
+          });
         });
         if (added) {
-          doc.api.updateScene({ elements: inherited, captureUpdate: CaptureUpdateAction.EVENTUALLY });
+          doc.api.updateScene({
+            elements: inherited,
+            captureUpdate: CaptureUpdateAction.EVENTUALLY,
+          });
           return;
         }
       }
@@ -303,24 +379,35 @@ export default function App() {
         let changed = false;
         const resized = elements.map((element) => {
           const before = previous.get(element.id);
-          const ratio = isFrame(element) ? readSlide(element).aspectRatio : null;
-          if (!before || !ratio || !appState.selectedElementIds[element.id] ||
-              Math.abs(element.width / Math.max(element.height, 1) - ratio) < 0.0001) return element;
+          const ratio = isFrame(element)
+            ? readSlide(element).aspectRatio
+            : null;
+          if (
+            !before ||
+            !ratio ||
+            !appState.selectedElementIds[element.id] ||
+            Math.abs(element.width / Math.max(element.height, 1) - ratio) <
+              0.0001
+          )
+            return element;
           changed = true;
-          return newElementWith(element, lockedFrameBounds(before, element, ratio));
+          return newElementWith(
+            element,
+            lockedFrameBounds(before, element, ratio),
+          );
         });
         if (changed) {
-          doc.api.updateScene({ elements: resized, captureUpdate: CaptureUpdateAction.EVENTUALLY });
+          doc.api.updateScene({
+            elements: resized,
+            captureUpdate: CaptureUpdateAction.EVENTUALLY,
+          });
           return;
         }
       }
-      // Selection and panning are not document edits. No scene copies in React state.
-      const next = `${hashElementsVersion(elements)}:${appState.viewBackgroundColor}:${appState.gridSize}:${appState.gridStep}:${appState.gridModeEnabled}`;
       if (doc.fingerprint === null) {
         doc.fingerprint = next;
         return;
       }
-      if (next === doc.fingerprint) return;
       doc.fingerprint = next;
       doc.revision += 1;
       if (!doc.dirty) {
@@ -597,20 +684,46 @@ export default function App() {
     },
   };
 
-  const mcpHandler = useRef<(method: string, params: any) => Promise<unknown>>(async () => { throw new Error("Editor is loading"); });
+  const mcpHandler = useRef<(method: string, params: any) => Promise<unknown>>(
+    async () => {
+      throw new Error("Editor is loading");
+    },
+  );
   mcpHandler.current = async (method, params) => {
-    if (!ready || busyRef.current || presenting.current || resolvePrompt.current)
-      throw new Error("Editor is busy. Finish the current operation or presentation, then retry.");
+    if (
+      !ready ||
+      busyRef.current ||
+      presenting.current ||
+      resolvePrompt.current
+    )
+      throw new Error(
+        "Editor is busy. Finish the current operation or presentation, then retry.",
+      );
     const target = (id?: string) => {
       const doc = id ? docs.current.find((doc) => doc.mcpId === id) : current();
-      if (!doc) throw new Error("Document not found. Use list_documents for current IDs.");
+      if (!doc)
+        throw new Error(
+          "Document not found. Use list_documents for current IDs.",
+        );
       return doc;
     };
-    const drawing = (doc: Doc): any => doc.api ? JSON.parse(serialize(doc)) : {
-      type: "excalidraw", version: 2, source: "excali-desktop", elements: doc.data?.elements ?? [],
-      appState: doc.data?.appState ?? {}, files: doc.data?.files ?? {},
-    };
-    const describe = (doc: Doc) => ({ documentId: doc.mcpId, checkpointId: doc.mcpId, path: doc.path, dirty: doc.dirty });
+    const drawing = (doc: Doc): any =>
+      doc.api
+        ? JSON.parse(serialize(doc))
+        : {
+            type: "excalidraw",
+            version: 2,
+            source: "excali-desktop",
+            elements: doc.data?.elements ?? [],
+            appState: doc.data?.appState ?? {},
+            files: doc.data?.files ?? {},
+          };
+    const describe = (doc: Doc) => ({
+      documentId: doc.mcpId,
+      checkpointId: doc.mcpId,
+      path: doc.path,
+      dirty: doc.dirty,
+    });
     const scene = (doc: Doc) => ({ ...describe(doc), ...drawing(doc) });
     const changed = async (doc: Doc) => {
       doc.dirty = true;
@@ -624,30 +737,46 @@ export default function App() {
       const deadline = Date.now() + 5000;
       while (!doc.api && docs.current.includes(doc) && Date.now() < deadline)
         await new Promise((resolve) => setTimeout(resolve, 25));
-      if (!doc.api) throw new Error("This tab is still loading. Retry shortly.");
+      if (!doc.api)
+        throw new Error("This tab is still loading. Retry shortly.");
       return doc.api;
     };
     const update = async (doc: Doc, elements: ReturnType<typeof convert>) => {
       await waitForEditor(doc);
       if (!doc.api) throw new Error("Editor closed during the operation");
-      doc.api.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+      doc.api.updateScene({
+        elements,
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
       await changed(doc);
     };
-    if (method === "list_documents") return { documents: docs.current.map(describe), activeDocumentId: current().mcpId };
+    if (method === "list_documents")
+      return {
+        documents: docs.current.map(describe),
+        activeDocumentId: current().mcpId,
+      };
     if (method === "list_drawings") return readWorkspace();
     if (method === "get_scene") return scene(target(params.documentId));
     if (method === "read_checkpoint") return scene(target(params.id));
     if (method === "open_drawing") {
       // Agents can open only workspace files, never arbitrary paths or native dialogs.
       const tree = await readWorkspace();
-      const find = (entries: Entry[]): boolean => entries.some((entry) => entry.folder ? find(entry.children) : entry.path === params.path);
-      if (!find(tree.entries)) throw new Error("Choose a drawing path returned by list_drawings");
+      const find = (entries: Entry[]): boolean =>
+        entries.some((entry) =>
+          entry.folder ? find(entry.children) : entry.path === params.path,
+        );
+      if (!find(tree.entries))
+        throw new Error("Choose a drawing path returned by list_drawings");
       await show(params.path);
       return describe(current());
     }
     if (method === "import_drawing") {
       validateDrawing(params.json);
-      const data = await loadFromBlob(new Blob([params.json], { type: "application/json" }), null, null);
+      const data = await loadFromBlob(
+        new Blob([params.json], { type: "application/json" }),
+        null,
+        null,
+      );
       const imported = addDoc(data, null);
       await changed(imported);
       await waitForEditor(imported);
@@ -655,18 +784,50 @@ export default function App() {
     }
     if (method === "create_view") {
       const input = parseElements(params.elements);
-      const checkpoint = input.find((element) => element.type === "restoreCheckpoint");
+      const checkpoint = input.find(
+        (element) => element.type === "restoreCheckpoint",
+      );
       const doc = checkpoint ? target(checkpoint.id) : null;
-      const result = applyView(params.elements, doc ? drawing(doc).elements : []);
+      const result = applyView(
+        params.elements,
+        doc ? drawing(doc).elements : [],
+      );
       const view = current().api?.getAppState();
       const camera = result.camera && view ? fit(result.camera, view) : null;
-      const destination = doc ?? addDoc({ elements: result.elements, appState: camera ? { scrollX: camera.scrollX, scrollY: camera.scrollY, zoom: { value: camera.zoom as any } } : undefined }, null);
+      const destination =
+        doc ??
+        addDoc(
+          {
+            elements: result.elements,
+            appState: camera
+              ? {
+                  scrollX: camera.scrollX,
+                  scrollY: camera.scrollY,
+                  zoom: { value: camera.zoom as any },
+                }
+              : undefined,
+          },
+          null,
+        );
       if (doc) await update(doc, result.elements);
-      else { await changed(destination); await waitForEditor(destination); }
+      else {
+        await changed(destination);
+        await waitForEditor(destination);
+      }
       if (result.camera && destination.api) {
         const state = destination.api.getAppState();
-        const camera = fit(result.camera, { width: state.width, height: state.height });
-        destination.api.updateScene({ appState: { scrollX: camera.scrollX, scrollY: camera.scrollY, zoom: { value: camera.zoom as any } }, captureUpdate: CaptureUpdateAction.NEVER });
+        const camera = fit(result.camera, {
+          width: state.width,
+          height: state.height,
+        });
+        destination.api.updateScene({
+          appState: {
+            scrollX: camera.scrollX,
+            scrollY: camera.scrollY,
+            zoom: { value: camera.zoom as any },
+          },
+          captureUpdate: CaptureUpdateAction.NEVER,
+        });
       }
       return describe(destination);
     }
@@ -675,17 +836,49 @@ export default function App() {
       const doc = params.documentId ? target(params.documentId) : null;
       const existing = doc ? drawing(doc).elements : [];
       const offset = getSlides(existing).length;
-      const startX = doc ? Math.max(0, ...existing.map((element: any) => element.x + element.width + 120)) : 0;
+      const startX = doc
+        ? Math.max(
+            0,
+            ...existing.map((element: any) => element.x + element.width + 120),
+          )
+        : 0;
       const added = convert(slideSkeletons(slides, offset, startX));
       const existingIds = new Set(existing.map((element: any) => element.id));
-      if (added.some((element) => existingIds.has(element.id))) throw new Error("A slide element id already exists in this drawing");
+      if (added.some((element) => existingIds.has(element.id)))
+        throw new Error("A slide element id already exists in this drawing");
       const view = current().api?.getAppState();
       const first = getSlides(added)[0]?.frame;
-      const camera = first && view ? fit(first, { width: view.width * 0.9, height: view.height * 0.9 }) : null;
-      const destination = doc ?? addDoc({ elements: added, appState: camera ? { scrollX: camera.scrollX, scrollY: camera.scrollY, zoom: { value: camera.zoom as any } } : undefined }, null);
+      const camera =
+        first && view
+          ? fit(first, { width: view.width * 0.9, height: view.height * 0.9 })
+          : null;
+      const destination =
+        doc ??
+        addDoc(
+          {
+            elements: added,
+            appState: camera
+              ? {
+                  scrollX: camera.scrollX,
+                  scrollY: camera.scrollY,
+                  zoom: { value: camera.zoom as any },
+                }
+              : undefined,
+          },
+          null,
+        );
       if (doc) await update(doc, [...existing, ...added]);
-      else { await changed(destination); await waitForEditor(destination); }
-      return { ...describe(destination), slides: getSlides(added).map((slide) => ({ frameId: slide.frame.id, settings: slide.settings })) };
+      else {
+        await changed(destination);
+        await waitForEditor(destination);
+      }
+      return {
+        ...describe(destination),
+        slides: getSlides(added).map((slide) => ({
+          frameId: slide.frame.id,
+          settings: slide.settings,
+        })),
+      };
     }
     const doc = target(params.documentId);
     if (method === "save_document") {
@@ -697,7 +890,10 @@ export default function App() {
         const tree = await readWorkspace();
         doc.path = await createDrawing(tree.root, data, params.name);
       }
-      if (doc.revision === revision) { doc.dirty = false; doc.snapshot = null; }
+      if (doc.revision === revision) {
+        doc.dirty = false;
+        doc.snapshot = null;
+      }
       await writeSnapshots();
       render();
       await refresh();
@@ -706,38 +902,80 @@ export default function App() {
     await waitForEditor(doc);
     if (!doc.api) throw new Error("Editor closed during the operation");
     if (method === "add_files") {
-      const files = filesSchema.parse(params.files).map((file) => ({ ...file, created: file.created ?? Date.now() }));
-      doc.api.addFiles(files as Parameters<ExcalidrawImperativeAPI["addFiles"]>[0]);
+      const files = filesSchema
+        .parse(params.files)
+        .map((file) => ({ ...file, created: file.created ?? Date.now() }));
+      doc.api.addFiles(
+        files as Parameters<ExcalidrawImperativeAPI["addFiles"]>[0],
+      );
       await changed(doc);
       return describe(doc);
     }
     const elements = doc.api.getSceneElements();
     if (method === "update_elements") {
-      await update(doc, patchElements(elements, params.updates, params.deleteIds));
+      await update(
+        doc,
+        patchElements(elements, params.updates, params.deleteIds),
+      );
       return describe(doc);
     }
     if (method === "update_slide") {
-      const slide = getSlides(elements).find((slide) => slide.frame.id === params.frameId);
+      const slide = getSlides(elements).find(
+        (slide) => slide.frame.id === params.frameId,
+      );
       if (!slide) throw new Error("Slide frame not found");
-      const updates: Record<string, any>[] = [{ id: slide.frame.id, customData: withSlide(slide.frame.customData, settingsSchema.parse(params.settings)) }];
+      const updates: Record<string, any>[] = [
+        {
+          id: slide.frame.id,
+          customData: withSlide(
+            slide.frame.customData,
+            settingsSchema.parse(params.settings),
+          ),
+        },
+      ];
       for (const item of params.builds) {
-        const element = slide.elements.find((element) => element.id === item.elementId);
-        if (!element) throw new Error(`Element is not on this slide: ${item.elementId}`);
-        updates.push({ id: element.id, customData: withBuild(element.customData, item.build === null ? null : buildSchema.parse(item.build)) });
+        const element = slide.elements.find(
+          (element) => element.id === item.elementId,
+        );
+        if (!element)
+          throw new Error(`Element is not on this slide: ${item.elementId}`);
+        updates.push({
+          id: element.id,
+          customData: withBuild(
+            element.customData,
+            item.build === null ? null : buildSchema.parse(item.build),
+          ),
+        });
       }
       await update(doc, patchElements(elements, updates, []));
       return describe(doc);
     }
     if (method === "export_scene") {
-      const slide = params.frameId ? getSlides(elements).find((slide) => slide.frame.id === params.frameId) : null;
+      const slide = params.frameId
+        ? getSlides(elements).find((slide) => slide.frame.id === params.frameId)
+        : null;
       if (params.frameId && !slide) throw new Error("Slide frame not found");
-      const options = { elements: slide ? [slide.frame, ...slide.elements] : elements, files: doc.api.getFiles(), appState: { ...doc.api.getAppState(), exportBackground: true, exportWithDarkMode: false }, exportingFrame: slide?.frame as any };
-      if (params.format === "svg") return { mimeType: "image/svg+xml", data: (await exportToSvg(options)).outerHTML };
+      const options = {
+        elements: slide ? [slide.frame, ...slide.elements] : elements,
+        files: doc.api.getFiles(),
+        appState: {
+          ...doc.api.getAppState(),
+          exportBackground: true,
+          exportWithDarkMode: false,
+        },
+        exportingFrame: slide?.frame as any,
+      };
+      if (params.format === "svg")
+        return {
+          mimeType: "image/svg+xml",
+          data: (await exportToSvg(options)).outerHTML,
+        };
       const blob = await exportToBlob({ ...options, mimeType: "image/png" });
       const data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result).split(",")[1]);
-        reader.onerror = () => reject(new Error("Could not encode exported image"));
+        reader.onerror = () =>
+          reject(new Error("Could not encode exported image"));
         reader.readAsDataURL(blob);
       });
       return { mimeType: "image/png", data };
@@ -749,17 +987,30 @@ export default function App() {
     if (!desktop || !ready) return;
     let disposed = false;
     let stop: (() => void) | undefined;
-    void listen<{ id: string; method: string; params: any }>("mcp-request", async ({ payload }) => {
-      let result: unknown;
-      try { result = await mcpHandler.current(payload.method, payload.params); }
-      catch (reason) { result = { error: reason instanceof Error ? reason.message : String(reason) }; }
-      await invoke("mcp_reply", { id: payload.id, result }).catch(report);
-    }).then(async (unlisten) => {
-      if (disposed) return unlisten();
-      stop = unlisten;
-      await invoke("start_mcp");
-    }).catch(report);
-    return () => { disposed = true; stop?.(); };
+    void listen<{ id: string; method: string; params: any }>(
+      "mcp-request",
+      async ({ payload }) => {
+        let result: unknown;
+        try {
+          result = await mcpHandler.current(payload.method, payload.params);
+        } catch (reason) {
+          result = {
+            error: reason instanceof Error ? reason.message : String(reason),
+          };
+        }
+        await invoke("mcp_reply", { id: payload.id, result }).catch(report);
+      },
+    )
+      .then(async (unlisten) => {
+        if (disposed) return unlisten();
+        stop = unlisten;
+        await invoke("start_mcp");
+      })
+      .catch(report);
+    return () => {
+      disposed = true;
+      stop?.();
+    };
   }, [ready]);
 
   function answer(choice: Choice) {
@@ -958,8 +1209,16 @@ export default function App() {
             <button
               className="icon-button"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={
+                theme === "dark"
+                  ? "Switch to light mode"
+                  : "Switch to dark mode"
+              }
+              title={
+                theme === "dark"
+                  ? "Switch to light mode"
+                  : "Switch to dark mode"
+              }
             >
               <Icon name={theme === "dark" ? "sun" : "moon"} />
             </button>
@@ -1001,9 +1260,16 @@ export default function App() {
               onClick={() => handlers.current.present()}
             />
           </nav>
-          <div className={`sidebar-heading ${dropTarget?.path === workspace?.root ? "drop-inside" : ""}`}
-            onDragOver={(event) => workspace && dragOver(event, { path: workspace.root, position: "inside" })}
-            onDrop={(event) => workspace && dropEntry(event, { path: workspace.root, position: "inside" })}
+          <div
+            className={`sidebar-heading ${dropTarget?.path === workspace?.root ? "drop-inside" : ""}`}
+            onDragOver={(event) =>
+              workspace &&
+              dragOver(event, { path: workspace.root, position: "inside" })
+            }
+            onDrop={(event) =>
+              workspace &&
+              dropEntry(event, { path: workspace.root, position: "inside" })
+            }
           >
             <button
               className="heading-label"
@@ -1030,10 +1296,21 @@ export default function App() {
             role="tree"
             aria-label="Drawings"
             data-tauri-drag-region
-            onDragOver={(event) => workspace && dragOver(event, { path: workspace.root, position: "inside" })}
-            onDrop={(event) => workspace && dropEntry(event, { path: workspace.root, position: "inside" })}
+            onDragOver={(event) =>
+              workspace &&
+              dragOver(event, { path: workspace.root, position: "inside" })
+            }
+            onDrop={(event) =>
+              workspace &&
+              dropEntry(event, { path: workspace.root, position: "inside" })
+            }
             onDragLeave={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null);
+              if (
+                !event.currentTarget.contains(
+                  event.relatedTarget as Node | null,
+                )
+              )
+                setDropTarget(null);
             }}
           >
             {(!path ||
@@ -1067,12 +1344,21 @@ export default function App() {
                   dragged,
                   dropTarget,
                   dragStart: (event, entry) => {
-                    if (disabled || renaming) { event.preventDefault(); return; }
+                    if (disabled || renaming) {
+                      event.preventDefault();
+                      return;
+                    }
                     event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("application/x-excali-entry", entry.path);
+                    event.dataTransfer.setData(
+                      "application/x-excali-entry",
+                      entry.path,
+                    );
                     setDragged(entry);
                   },
-                  dragEnd: () => { setDragged(null); setDropTarget(null); },
+                  dragEnd: () => {
+                    setDragged(null);
+                    setDropTarget(null);
+                  },
                   dragOver,
                   drop: dropEntry,
                   open: (entry) => {
@@ -1281,69 +1567,69 @@ export default function App() {
           }}
         >
           <div className={`canvases ${canvasWidth}`} ref={canvases}>
-          {/* Every open drawing keeps its editor, and with it its undo history; only the active one is shown. */}
-          {ready &&
-            docs.current.map((doc) => (
-              <div
-                key={doc.id}
-                className={`canvas ${doc === active ? "active" : ""}`}
-                ref={(element) => {
-                  if (element) element.inert = doc !== active;
-                }}
-              >
-                <Excalidraw
-                  initialData={doc.data}
-                  excalidrawAPI={(value) => {
-                    doc.api = value;
+            {/* Every open drawing keeps its editor, and with it its undo history; only the active one is shown. */}
+            {ready &&
+              docs.current.map((doc) => (
+                <div
+                  key={doc.id}
+                  className={`canvas ${doc === active ? "active" : ""}`}
+                  ref={(element) => {
+                    if (element) element.inert = doc !== active;
                   }}
-                  onChange={onChange(doc)}
-                  theme={theme}
-                  UIOptions={{
-                    canvasActions: {
-                      loadScene: false,
-                      saveToActiveFile: false,
-                      export: { saveFileToDisk: false },
-                      toggleTheme: false,
-                    },
-                  }}
-                  renderTopRightUI={() =>
-                    // The open panel has its own close and present buttons.
-                    slidesOpen ? null : (
-                      <SlidesTrigger
-                        onOpen={() => setSlidesOpen(true)}
-                        onPlay={() => handlers.current.present()}
-                      />
-                    )
-                  }
                 >
-                  <MainMenu>
-                    <MainMenu.DefaultItems.Export />
-                    <MainMenu.DefaultItems.ClearCanvas />
-                    <MainMenu.DefaultItems.ChangeCanvasBackground />
-                  </MainMenu>
-                </Excalidraw>
-              </div>
-            ))}
-          {(error || recovered > 0) && (
-            <div
-              className={`toast ${error ? "error" : ""}`}
-              role={error ? "alert" : "status"}
-            >
-              <span>
-                {error ||
-                  (recovered > 1
-                    ? `Restored ${recovered} unsaved drawings.`
-                    : "Restored your unsaved drawing.")}
-              </span>
-              <button
-                className="icon-button"
-                onClick={() => (error ? setError(null) : setRecovered(0))}
-                aria-label="Dismiss"
+                  <Excalidraw
+                    initialData={doc.data}
+                    excalidrawAPI={(value) => {
+                      doc.api = value;
+                    }}
+                    onChange={onChange(doc)}
+                    theme={theme}
+                    UIOptions={{
+                      canvasActions: {
+                        loadScene: false,
+                        saveToActiveFile: false,
+                        export: { saveFileToDisk: false },
+                        toggleTheme: false,
+                      },
+                    }}
+                    renderTopRightUI={() =>
+                      // The open panel has its own close and present buttons.
+                      slidesOpen ? null : (
+                        <SlidesTrigger
+                          onOpen={() => setSlidesOpen(true)}
+                          onPlay={() => handlers.current.present()}
+                        />
+                      )
+                    }
+                  >
+                    <MainMenu>
+                      <MainMenu.DefaultItems.Export />
+                      <MainMenu.DefaultItems.ClearCanvas />
+                      <MainMenu.DefaultItems.ChangeCanvasBackground />
+                    </MainMenu>
+                  </Excalidraw>
+                </div>
+              ))}
+            {(error || recovered > 0) && (
+              <div
+                className={`toast ${error ? "error" : ""}`}
+                role={error ? "alert" : "status"}
               >
-                <Icon name="close" />
-              </button>
-            </div>
-          )}
+                <span>
+                  {error ||
+                    (recovered > 1
+                      ? `Restored ${recovered} unsaved drawings.`
+                      : "Restored your unsaved drawing.")}
+                </span>
+                <button
+                  className="icon-button"
+                  onClick={() => (error ? setError(null) : setRecovered(0))}
+                  aria-label="Dismiss"
+                >
+                  <Icon name="close" />
+                </button>
+              </div>
+            )}
           </div>
           {ready && slidesOpen && (
             <SlidesPanel
@@ -1351,10 +1637,27 @@ export default function App() {
               getApi={() => active.api}
               onPlay={(start) => handlers.current.present(start)}
               onClose={() => setSlidesOpen(false)}
-              onEditorKey={({ key, code, metaKey, ctrlKey, shiftKey, altKey }) => {
+              onEditorKey={({
+                key,
+                code,
+                metaKey,
+                ctrlKey,
+                shiftKey,
+                altKey,
+              }) => {
                 editor.current
                   ?.querySelector(".canvas.active .excalidraw-container")
-                  ?.dispatchEvent(new KeyboardEvent("keydown", { key, code, metaKey, ctrlKey, shiftKey, altKey, bubbles: true }));
+                  ?.dispatchEvent(
+                    new KeyboardEvent("keydown", {
+                      key,
+                      code,
+                      metaKey,
+                      ctrlKey,
+                      shiftKey,
+                      altKey,
+                      bubbles: true,
+                    }),
+                  );
               }}
             />
           )}
@@ -1458,7 +1761,15 @@ function Tree({
         const target = (event: DragEvent): DropTarget => {
           const bounds = event.currentTarget.getBoundingClientRect();
           const offset = (event.clientY - bounds.top) / bounds.height;
-          return { path: entry.path, position: entry.folder && offset >= 0.25 && offset <= 0.75 ? "inside" : offset < 0.5 ? "before" : "after" };
+          return {
+            path: entry.path,
+            position:
+              entry.folder && offset >= 0.25 && offset <= 0.75
+                ? "inside"
+                : offset < 0.5
+                  ? "before"
+                  : "after",
+          };
         };
         return (
           <Fragment key={entry.path}>
@@ -1611,5 +1922,9 @@ function useTheme() {
       // The toggle still works when preference storage is unavailable.
     }
   }, [preference]);
-  return [preference ?? (dark ? "dark" : "light"), setPreference, preference] as const;
+  return [
+    preference ?? (dark ? "dark" : "light"),
+    setPreference,
+    preference,
+  ] as const;
 }

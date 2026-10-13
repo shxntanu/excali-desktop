@@ -174,7 +174,7 @@ export function SlidesTrigger({
 }
 
 const sceneKey = ({ elements, appState, files }: Scene) =>
-  `${hashElementsVersion(elements)}|${Object.keys(appState.selectedElementIds).join()}|${appState.viewBackgroundColor}|${appState.theme}|${Object.keys(files).length}|${appState.scrollX}:${appState.scrollY}:${appState.zoom.value}:${appState.width}:${appState.height}:${appState.offsetLeft}:${appState.offsetTop}`;
+  `${hashElementsVersion(elements)}|${Object.keys(appState.selectedElementIds).join()}|${appState.viewBackgroundColor}|${appState.theme}|${Object.keys(files).length}`;
 
 // The panel only mounts while open, so the scene is followed only then.
 function Panel({
@@ -577,8 +577,8 @@ function Panel({
             <Icon name="frame" size={28} />
             <p>No slides yet</p>
             <p className="hint">
-              Add a slide above, or draw a frame on the canvas with{" "}
-              <kbd>F</kbd>.
+              Add a slide above, or draw a frame on the canvas with <kbd>F</kbd>
+              .
             </p>
           </div>
         </div>
@@ -892,12 +892,7 @@ function Inspector({
         />
         Skip when presenting
       </label>
-      <SlideLayoutTools
-        slide={slide}
-        selected={selected}
-        api={api}
-        state={scene.appState}
-      />
+      <SlideLayoutTools slide={slide} selected={selected} api={api} />
 
       <div className="inspector-heading">
         <h3>Reveal steps</h3>
@@ -922,9 +917,7 @@ function Inspector({
         </div>
       </div>
       {preview && steps > 0 && <SlidePreview slide={slide} scene={scene} />}
-      {badges && (
-        <BuildBadges slide={slide} state={scene.appState} select={select} />
-      )}
+      {badges && <BuildBadges slide={slide} api={api} select={select} />}
       {targets.length > 0 ? (
         <div className="build-editor">
           <Field
@@ -1366,8 +1359,7 @@ function validSize(width: number, height: number) {
 const presetOf = (size: { width: number; height: number }) =>
   slideSizes.find(
     (option) =>
-      Math.abs(size.width / size.height - option.width / option.height) <
-      0.001,
+      Math.abs(size.width / size.height - option.width / option.height) < 0.001,
   )?.label ?? "custom";
 
 function SizeInputs({
@@ -1418,12 +1410,10 @@ function SlideLayoutTools({
   slide,
   selected,
   api,
-  state,
 }: {
   slide: Slide<ExcalidrawElement>;
   selected: ExcalidrawElement[];
   api: ExcalidrawImperativeAPI;
-  state: AppState;
 }) {
   const [open, setOpen] = useState(false);
   const [guides, setGuides] = useState(false);
@@ -1448,7 +1438,7 @@ function SlideLayoutTools({
         />
         Show safe area and center guides
       </label>
-      {open && guides && <SlideGuides slide={slide} state={state} />}
+      {open && guides && <SlideGuides slide={slide} api={api} />}
     </details>
   );
 }
@@ -1552,15 +1542,40 @@ function FrameSize({
   );
 }
 
+// Only canvas overlays follow panning; the slide list and inspector do not.
+function useCanvasViewport(api: ExcalidrawImperativeAPI) {
+  const [state, setState] = useState(() => api.getAppState());
+  useEffect(() => {
+    let previous = api.getAppState();
+    setState(previous);
+    return api.onChange((_elements, next) => {
+      if (
+        next.scrollX === previous.scrollX &&
+        next.scrollY === previous.scrollY &&
+        next.zoom.value === previous.zoom.value &&
+        next.width === previous.width &&
+        next.height === previous.height &&
+        next.offsetLeft === previous.offsetLeft &&
+        next.offsetTop === previous.offsetTop
+      )
+        return;
+      previous = next;
+      setState(next);
+    });
+  }, [api]);
+  return state;
+}
+
 function BuildBadges({
   slide,
-  state,
+  api,
   select,
 }: {
   slide: Slide<ExcalidrawElement>;
-  state: AppState;
+  api: ExcalidrawImperativeAPI;
   select: (ids: string[]) => void;
 }) {
+  const state = useCanvasViewport(api);
   return createPortal(
     <div
       className="build-badges"
@@ -1778,11 +1793,12 @@ function SlidePreview({
 
 function SlideGuides({
   slide,
-  state,
+  api,
 }: {
   slide: Slide<ExcalidrawElement>;
-  state: AppState;
+  api: ExcalidrawImperativeAPI;
 }) {
+  const state = useCanvasViewport(api);
   const frame = slide.frame,
     area = safeArea(frame),
     zoom = state.zoom.value;
@@ -1924,7 +1940,10 @@ function DeckSettings({
             option.width === deck.size!.width &&
             option.height === deck.size!.height,
         )?.label ?? "custom");
-  const applyAll = (kind: "size" | "transition" | "effect", disabled = false) => (
+  const applyAll = (
+    kind: "size" | "transition" | "effect",
+    disabled = false,
+  ) => (
     <button
       className="link-button"
       disabled={!hasSlides || disabled}
@@ -1950,7 +1969,9 @@ function DeckSettings({
             if (value === "auto") onChange({ size: null });
             const option = slideSizes.find((option) => option.label === value);
             if (option)
-              onChange({ size: { width: option.width, height: option.height } });
+              onChange({
+                size: { width: option.width, height: option.height },
+              });
           }}
         >
           <option value="auto">Same as selected slide</option>
