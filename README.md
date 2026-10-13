@@ -1,12 +1,18 @@
 <p align="center">
-  <img width="1680" height="1050" alt="Excali Desktio" src="assets/excali-desktop.png" />
+  <img src="src-tauri/icons/64x64.png" alt="Excali Desktop" width="64" />
 </p>
 
 <h1 align="center">Excali Desktop</h1>
 
 <p align="center">
-  <strong>A local, offline Excalidraw editor.</strong>
+  <strong>A supercharged Excalidraw for the desktop.</strong>
 </p>
+
+<p align="center">
+  <img width="1680" height="1050" alt="Excali Desktop" src="assets/excali-desktop.png" />
+</p>
+
+Create presentations, slide decks, and work with multiple Excalidraw files at once, with full MCP support so that your agents can work with you. Fully private, fully offline, fully yours.
 
 ## Install
 
@@ -169,15 +175,15 @@ instructions, resources, and prompts. It does not modify drawings.
 Ask an agent: “Use excali-desktop to draw our architecture, then create a
 five-slide presentation explaining it and save the drawing.”
 
-| Tools | Purpose |
-| --- | --- |
-| `read_me`, `create_view` | Official element reference and compact diagram creation |
-| `list_documents`, `get_scene`, `read_checkpoint` | Open tabs, live elements, embedded images, and manual edits |
-| `update_elements` | Undoable element edits and deletion |
-| `create_slides`, `update_slide` | Frame-based slides, order, transitions, visibility, and reveal steps |
-| `list_drawings`, `open_drawing`, `save_document` | Workspace discovery, opening, and atomic saves |
-| `import_drawing`, `add_files` | Portable drawing imports and embedded base64 images |
-| `export_scene` | SVG or PNG of a drawing or an individual slide |
+| Tools                                            | Purpose                                                              |
+| ------------------------------------------------ | -------------------------------------------------------------------- |
+| `read_me`, `create_view`                         | Official element reference and compact diagram creation              |
+| `list_documents`, `get_scene`, `read_checkpoint` | Open tabs, live elements, embedded images, and manual edits          |
+| `update_elements`                                | Undoable element edits and deletion                                  |
+| `create_slides`, `update_slide`                  | Frame-based slides, order, transitions, visibility, and reveal steps |
+| `list_drawings`, `open_drawing`, `save_document` | Workspace discovery, opening, and atomic saves                       |
+| `import_drawing`, `add_files`                    | Portable drawing imports and embedded base64 images                  |
+| `export_scene`                                   | SVG or PNG of a drawing or an individual slide                       |
 
 The server also exposes `excali://reference` and `excali://active` resources,
 and a `create-presentation` prompt. It works with clients that support standard
