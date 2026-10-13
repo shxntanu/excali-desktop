@@ -1,6 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { validateDrawing } from "./document";
-import type { SystemFont } from "./fonts";
 
 export const desktop = isTauri();
 const recoveryKey = "excali-desktop-recovery";
@@ -78,11 +77,6 @@ export const deleteEntry = (path: string) =>
 export function createDrawing(folder: string, data: string, name?: string) {
   validateDrawing(data);
   return invoke<string>("create_drawing", { folder, data, name });
-}
-
-// The browser preview has no font list, so it offers only Excalidraw's bundled fonts.
-export async function listFonts(): Promise<SystemFont[]> {
-  return desktop ? invoke("list_fonts") : [];
 }
 
 export async function readRecovery(): Promise<string | null> {

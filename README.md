@@ -31,7 +31,7 @@ bun install --frozen-lockfile
 bun run desktop
 ```
 
-The installation step copies bundled Excalidraw fonts into `public/fonts`. They are included in the app, so editing does not require a CDN, account, or server. Internet access is required to install dependencies, not to use the built editor.
+The installation step copies bundled Excalidraw fonts into `public/fonts`. They are included in the app, so editing does not require a CDN, account, or server. The font picker uses only Excalidraw's bundled fonts; installed system fonts are not scanned or registered at startup. Internet access is required to install dependencies, not to use the built editor.
 
 Bun manages dependencies and runs the JavaScript tooling and tests; Node.js is not required. Vite builds the frontend, and Tauri still uses Rust and the system webview for the desktop app. Faster tooling does not directly change the app's runtime performance. Commit `bun.lock` when changing dependencies.
 

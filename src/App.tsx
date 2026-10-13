@@ -11,7 +11,6 @@ import {
 } from "react";
 import {
   Excalidraw,
-  FONT_FAMILY,
   hashElementsVersion,
   newElementWith,
   loadFromBlob,
@@ -40,7 +39,6 @@ import {
   serializeRecovery,
   validateDrawing,
 } from "./document";
-import { cssFamily, fontId, lineHeight, type SystemFont } from "./fonts";
 import { Icon, type IconName } from "./icons";
 import { canDrop, dropFolder, orderedEntries, placeEntry, remapOrder, type DropTarget, type SidebarOrder } from "./sidebar";
 import { getSlides, withSlide, withBuild, fit, isFrame, readSlide, readDeck, withDeck, lockedFrameBounds, type SceneElement } from "./presentation";
@@ -54,7 +52,6 @@ import {
   deleteEntry,
   desktop,
   forgetDocument,
-  listFonts,
   moveEntry,
   openDocument,
   readDrawing,
@@ -775,11 +772,8 @@ export default function App() {
     mounted.current = true;
     let cancelled = false;
     void (async () => {
-      // Fonts are registered before the first render so saved text never draws in a fallback font.
-      const fonts = listFonts().then(registerSystemFonts).catch(report);
       try {
         const saved = await readRecovery();
-        await fonts;
         if (saved) {
           const restored = await Promise.all(
             parseRecovery(saved).map(async ({ drawing }) => {
@@ -1403,40 +1397,6 @@ export default function App() {
 
 const command = navigator.platform.includes("Mac") ? "⌘" : "Ctrl+";
 const mac = desktop && navigator.platform.includes("Mac");
-
-type FontRegistry = {
-  registered: Map<
-    number,
-    { metadata: object; fontFaces: { fontFace: { family: string } }[] }
-  >;
-};
-
-// Excalidraw maps font ids to CSS through FONT_FAMILY, and its font picker lists the registry
-// that vite.config.ts exposes. Local fonts are skipped when Excalidraw loads or embeds font files.
-function registerSystemFonts(fonts: SystemFont[]) {
-  const registry = (globalThis as { __excalidrawFonts?: FontRegistry })
-    .__excalidrawFonts;
-  if (!registry)
-    throw new Error("Installed fonts could not be added to the font picker.");
-  const families = FONT_FAMILY as Record<string, number>;
-  for (const font of fonts) {
-    if (font.family in families) continue;
-    const id = fontId(font.family);
-    families[cssFamily(font.family)] = id;
-    registry.registered.set(id, {
-      metadata: {
-        local: true,
-        metrics: {
-          unitsPerEm: font.unitsPerEm,
-          ascender: font.ascender,
-          descender: font.descender,
-          lineHeight: lineHeight(font),
-        },
-      },
-      fontFaces: [{ fontFace: { family: font.family } }],
-    });
-  }
-}
 
 function SidebarItem({
   icon,

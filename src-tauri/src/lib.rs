@@ -1,7 +1,7 @@
 mod mcp;
 use serde::Serialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -40,15 +40,6 @@ struct Entry {
     path: String,
     folder: bool,
     children: Vec<Entry>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SystemFont {
-    family: String,
-    units_per_em: u16,
-    ascender: i16,
-    descender: i16,
 }
 
 #[derive(Serialize)]
@@ -572,53 +563,6 @@ async fn write_recovery(app: tauri::AppHandle, data: Option<String>) -> Result<(
 }
 
 #[tauri::command]
-async fn list_fonts() -> Result<Vec<SystemFont>, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let mut db = fontdb::Database::new();
-        db.load_system_fonts();
-        // Metrics come from each family's face closest to an upright regular.
-        let mut regular: HashMap<String, (u32, fontdb::ID)> = HashMap::new();
-        for face in db.faces() {
-            let Some((name, _)) = face.families.first() else {
-                continue;
-            };
-            let name = name.trim();
-            // Dot-prefixed families are private macOS UI fonts.
-            if name.is_empty() || name.starts_with('.') {
-                continue;
-            }
-            let upright = if face.style == fontdb::Style::Normal {
-                0
-            } else {
-                1000
-            };
-            let score = (i32::from(face.weight.0) - 400).unsigned_abs() + upright;
-            if regular.get(name).is_none_or(|(best, _)| score < *best) {
-                regular.insert(name.to_owned(), (score, face.id));
-            }
-        }
-        let mut fonts: Vec<SystemFont> = regular
-            .into_iter()
-            .filter_map(|(family, (_, id))| {
-                db.with_face_data(id, |data, index| {
-                    let face = ttf_parser::Face::parse(data, index).ok()?;
-                    Some(SystemFont {
-                        family,
-                        units_per_em: face.units_per_em(),
-                        ascender: face.ascender(),
-                        descender: face.descender(),
-                    })
-                })?
-            })
-            .collect();
-        fonts.sort_by_key(|font| font.family.to_lowercase());
-        fonts
-    })
-    .await
-    .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 fn close_app(app: tauri::AppHandle) {
     app.state::<Closing>().0.store(true, Ordering::SeqCst);
     app.exit(0);
@@ -743,7 +687,6 @@ pub fn run() {
             save_document,
             read_recovery,
             write_recovery,
-            list_fonts,
             close_app,
             workspace,
             read_drawing,
