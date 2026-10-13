@@ -123,7 +123,7 @@ export default function App() {
   const [recovered, setRecovered] = useState(0);
   const [prompt, setPrompt] = useState("");
   const [sidebar, setSidebar] = useState(true);
-  const theme = useSystemTheme();
+  const [theme, setTheme, themePreference] = useTheme();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   // Where new drawings and folders go; null means the top of the drawings folder.
@@ -163,6 +163,10 @@ export default function App() {
     if (mounted.current)
       setError(reason instanceof Error ? reason.message : String(reason));
   }
+
+  useEffect(() => {
+    if (desktop) void getCurrentWindow().setTheme(themePreference).catch(report);
+  }, [themePreference]);
 
   function current() {
     return (
@@ -864,6 +868,14 @@ export default function App() {
         >
           <div className="sidebar-header" data-tauri-drag-region>
             {toggle}
+            <button
+              className="icon-button"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              <Icon name={theme === "dark" ? "sun" : "moon"} />
+            </button>
           </div>
           <nav className="sidebar-nav" aria-label="File">
             <SidebarItem
@@ -1462,7 +1474,15 @@ function RenameField({
   );
 }
 
-function useSystemTheme() {
+function useTheme() {
+  const [preference, setPreference] = useState<"light" | "dark" | null>(() => {
+    try {
+      const saved = localStorage.getItem("excali-theme");
+      return saved === "light" || saved === "dark" ? saved : null;
+    } catch {
+      return null;
+    }
+  });
   const [dark, setDark] = useState(
     () => window.matchMedia("(prefers-color-scheme: dark)").matches,
   );
@@ -1472,5 +1492,13 @@ function useSystemTheme() {
     query.addEventListener("change", change);
     return () => query.removeEventListener("change", change);
   }, []);
-  return dark ? "dark" : "light";
+  useEffect(() => {
+    if (!preference) return;
+    try {
+      localStorage.setItem("excali-theme", preference);
+    } catch {
+      // The toggle still works when preference storage is unavailable.
+    }
+  }, [preference]);
+  return [preference ?? (dark ? "dark" : "light"), setPreference, preference] as const;
 }

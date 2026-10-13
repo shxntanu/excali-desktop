@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Main editor window controls",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-set-title", "core:window:allow-start-dragging", "core:window:allow-internal-toggle-maximize", "core:window:allow-set-fullscreen", "core:window:allow-is-fullscreen"]
+  "permissions": ["core:default", "core:window:allow-set-title", "core:window:allow-set-theme", "core:window:allow-start-dragging", "core:window:allow-internal-toggle-maximize", "core:window:allow-set-fullscreen", "core:window:allow-is-fullscreen"]
 }

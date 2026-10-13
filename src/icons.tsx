@@ -5,6 +5,8 @@ export type IconName =
   | "saveAs"
   | "file"
   | "sidebar"
+  | "sun"
+  | "moon"
   | "close"
   | "folder"
   | "folderPlus"
@@ -61,6 +63,15 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
         </>
       )}
       {name === "close" && <path d="M18 6 6 18M6 6l12 12" />}
+      {name === "sun" && (
+        <>
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5" />
+        </>
+      )}
+      {name === "moon" && (
+        <path d="M20.9 13.3A9 9 0 0 1 10.7 3.1a9 9 0 1 0 10.2 10.2Z" />
+      )}
       {(name === "folder" || name === "folderPlus") && (
         <path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2" />
       )}

@@ -9,9 +9,9 @@
     sans-serif;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
-  color-scheme: light dark;
 }
 .app {
+  color-scheme: light;
   --titlebar-height: 44px;
   --canvas: #ffffff;
   --sidebar: #f5f5f9;
@@ -19,7 +19,7 @@
   --line: #e7e7ef;
   --text: #1b1b1f;
   --muted: #6e6e7a;
-  --faint: #a3a3ad;
+  --faint: #737380;
   --hover: rgb(0 0 0 / 0.05);
   --active: #e0dfff;
   --active-text: #030064;
@@ -31,13 +31,14 @@
     0 12px 32px rgb(0 0 0 / 0.1);
 }
 .app[data-theme="dark"] {
+  color-scheme: dark;
   --canvas: #121212;
   --sidebar: #1c1c21;
   --sidebar-glass: rgb(28 28 33 / 0.5);
   --line: #2a2a31;
   --text: #e3e3e8;
   --muted: #a4a4b0;
-  --faint: #6e6e7a;
+  --faint: #a4a4b0;
   --hover: rgb(255 255 255 / 0.06);
   --active: #403e6a;
   --active-text: #e3e2fe;
@@ -102,6 +103,7 @@ button:focus-visible {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 4px;
 }
 .sidebar-nav {
   display: flex;
