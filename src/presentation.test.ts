@@ -130,3 +130,50 @@ test("build previews hide later steps, animate the current reveal, and preserve 
   assert.equal(element.opacity, 60);
   assert.equal(element.y, 80);
 });
+
+import { readDeck, withDeck } from "./presentation";
+
+test("deck defaults travel on frames, survive removal of a carrier and validate saved data", () => {
+  const deck = {
+    size: { width: 1600, height: 1000 },
+    transition: "dissolve" as const,
+    duration: 450,
+    effect: "rise" as const,
+  };
+  const first = { ...frame, customData: withDeck({ other: "kept" }, deck) };
+  const second = {
+    ...frame,
+    id: "second",
+    customData: withDeck(undefined, deck),
+  };
+  assert.deepEqual(readDeck([first, second]), deck);
+  assert.deepEqual(readDeck([{ ...first, isDeleted: true }, second]), deck);
+  assert.equal(first.customData.other, "kept");
+  assert.deepEqual(
+    readDeck([
+      {
+        ...frame,
+        customData: {
+          deck: {
+            size: { width: Infinity, height: -1 },
+            transition: "invalid",
+            duration: -1,
+            effect: "invalid",
+          },
+        },
+      },
+    ]),
+    {
+      size: null,
+      transition: "move",
+      duration: 0,
+      effect: "fade",
+    },
+  );
+  assert.deepEqual(readDeck([]), {
+    size: null,
+    transition: "move",
+    duration: 800,
+    effect: "fade",
+  });
+});

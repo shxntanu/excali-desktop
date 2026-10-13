@@ -469,3 +469,46 @@ export function buildAppearance(
   }
   return { opacity: element.opacity, y: element.y };
 }
+
+export type DeckDefaults = {
+  size: Size | null;
+  transition: Transition;
+  duration: number;
+  effect: Effect;
+};
+
+export function readDeck(elements: readonly SceneElement[]): DeckDefaults {
+  const frame = elements.find(
+    (element) =>
+      !element.isDeleted && isFrame(element) && element.customData?.deck,
+  );
+  const raw = record(frame?.customData?.deck);
+  const size = record(raw.size);
+  return {
+    size:
+      finite(size.width) &&
+      finite(size.height) &&
+      size.width >= 1 &&
+      size.height >= 1 &&
+      size.width <= 10000 &&
+      size.height <= 10000
+        ? { width: size.width, height: size.height }
+        : null,
+    transition: transitions.includes(raw.transition as Transition)
+      ? (raw.transition as Transition)
+      : "move",
+    duration: finite(raw.duration)
+      ? Math.max(0, Math.min(5000, raw.duration))
+      : 800,
+    effect: effects.includes(raw.effect as Effect)
+      ? (raw.effect as Effect)
+      : "fade",
+  };
+}
+
+export function withDeck(
+  customData: Record<string, any> | undefined,
+  deck: DeckDefaults,
+): Record<string, any> {
+  return { ...customData, deck };
+}

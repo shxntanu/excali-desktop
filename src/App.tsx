@@ -40,7 +40,7 @@ import {
 } from "./document";
 import { cssFamily, fontId, lineHeight, type SystemFont } from "./fonts";
 import { Icon, type IconName } from "./icons";
-import { getSlides, withSlide, withBuild, fit, isFrame, readSlide, lockedFrameBounds, type SceneElement } from "./presentation";
+import { getSlides, withSlide, withBuild, fit, isFrame, readSlide, readDeck, withDeck, lockedFrameBounds, type SceneElement } from "./presentation";
 import { applyView, convert, patchElements } from "./mcp-editor";
 import { parseElements, slidesSchema, slideSkeletons, settingsSchema, buildSchema, filesSchema } from "./mcp-schema";
 import Presenter from "./Presenter";
@@ -227,6 +227,22 @@ export default function App() {
     (elements, appState) => {
       const previous = doc.frames;
       doc.frames = new Map(elements.filter(isFrame).map((element) => [element.id, element]));
+      if (doc.fingerprint !== null && doc.api && elements.some((element) => !element.isDeleted && isFrame(element) && element.customData?.deck)) {
+        const deck = readDeck(elements);
+        let added = false;
+        const inherited = elements.map((element) => {
+          if (!isFrame(element) || element.isDeleted || previous.has(element.id) || element.customData?.deck) return element;
+          added = true;
+          return newElementWith(element, { customData: withDeck(withSlide(element.customData, {
+            transition: element.customData?.slide?.transition ?? deck.transition,
+            duration: element.customData?.slide?.duration ?? deck.duration,
+          }), deck) });
+        });
+        if (added) {
+          doc.api.updateScene({ elements: inherited, captureUpdate: CaptureUpdateAction.EVENTUALLY });
+          return;
+        }
+      }
       if (appState.isResizing && doc.api) {
         let changed = false;
         const resized = elements.map((element) => {

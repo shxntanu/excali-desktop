@@ -48,6 +48,10 @@ import {
   isFrame,
   move,
   readBuild,
+  readDeck,
+  readSlide,
+  withDeck,
+  type DeckDefaults,
   slideOf,
   slideSizes,
   speeds,
@@ -184,6 +188,8 @@ function Panel({
   }, [api]);
 
   const slides = useMemo(() => getSlides(scene.elements), [scene.elements]);
+  const [pendingDeck, setPendingDeck] = useState(() => readDeck([]));
+  const deck = slides.length ? readDeck(scene.elements) : pendingDeck;
   const selected = useMemo(() => {
     const ids = scene.appState.selectedElementIds;
     return scene.elements.filter(
@@ -298,7 +304,13 @@ function Panel({
         children: [],
         name: `Slide ${slides.length + 1}`,
         customData: {
-          slide: { order: slides.length, aspectRatio: width / height },
+          deck,
+          slide: {
+            order: slides.length,
+            aspectRatio: width / height,
+            transition: deck.transition,
+            duration: deck.duration,
+          },
         },
       },
     ]);
@@ -374,6 +386,7 @@ function Panel({
   }
 
   function removeSlide(slide: Slide<ExcalidrawElement>) {
+    setPendingDeck(deck);
     const removed = new Set([
       slide.frame.id,
       ...slide.elements.map((element) => element.id),
@@ -421,12 +434,75 @@ function Panel({
     else setActiveSlide(null);
   }
 
+  function setDeck(patchDefaults: Partial<DeckDefaults>) {
+    const next = { ...deck, ...patchDefaults };
+    setPendingDeck(next);
+    patch(
+      new Map(
+        slides.map((slide) => [
+          slide.frame.id,
+          withDeck(slide.frame.customData, next),
+        ]),
+      ),
+    );
+  }
+
+  function applyDeck(kind: "size" | "transition" | "effect") {
+    const frames = new Set(slides.map((slide) => slide.frame.id));
+    const members = new Set(
+      slides.flatMap((slide) => slide.elements.map((element) => element.id)),
+    );
+    api.updateScene({
+      elements: api.getSceneElementsIncludingDeleted().map((element) => {
+        if (element.isDeleted) return element;
+        if (kind === "size" && frames.has(element.id) && deck.size)
+          return newElementWith(element, {
+            width: deck.size.width,
+            height: deck.size.height,
+            customData: withSlide(element.customData, {
+              aspectRatio: readSlide(element).aspectRatio
+                ? deck.size.width / deck.size.height
+                : null,
+            }),
+          });
+        if (kind === "transition" && frames.has(element.id))
+          return newElementWith(element, {
+            customData: withSlide(element.customData, {
+              transition: deck.transition,
+              duration: deck.duration,
+            }),
+          });
+        const build =
+          kind === "effect" && members.has(element.id) && readBuild(element);
+        if (build)
+          return newElementWith(element, {
+            customData: withBuild(element.customData, {
+              ...build,
+              effect: deck.effect,
+            }),
+          });
+        return element;
+      }),
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+  }
+
+  const defaults = (
+    <DeckDefaultsEditor
+      deck={deck}
+      onChange={setDeck}
+      onApply={applyDeck}
+      disabled={!slides.length}
+    />
+  );
+
   const newSlide = (
     <NewSlide
       currentSize={
-        current
+        deck.size ??
+        (current
           ? { width: current.frame.width, height: current.frame.height }
-          : undefined
+          : undefined)
       }
       onCreate={(width, height, layout) =>
         createSlide(width, height, current, layout)
@@ -441,6 +517,7 @@ function Panel({
         <Icon name="frame" size={32} />
         <p>Create your first slide</p>
         {newSlide}
+        {defaults}
         <button
           className="slides-button"
           onClick={() => api.setActiveTool({ type: "frame" })}
@@ -453,6 +530,7 @@ function Panel({
   return (
     <div className="slides-panel">
       {newSlide}
+      {defaults}
       <button className="slides-button primary" onClick={() => onPlay(null)}>
         <Icon name="play" size={16} />
         Present
@@ -523,7 +601,11 @@ function Panel({
               <SlideActions
                 name={name}
                 onNew={() =>
-                  createSlide(slide.frame.width, slide.frame.height, slide)
+                  createSlide(
+                    deck.size?.width ?? slide.frame.width,
+                    deck.size?.height ?? slide.frame.height,
+                    slide,
+                  )
                 }
                 onDuplicate={() => duplicate(slide)}
                 onDelete={() => removeSlide(slide)}
@@ -563,6 +645,7 @@ function Panel({
           selected={selected}
           api={api}
           scene={scene}
+          defaultEffect={deck.effect}
           setSettings={(settings) => setSettings(current, settings)}
           patch={patch}
           select={select}
@@ -583,7 +666,9 @@ function Inspector({
   onPlay,
   api,
   scene,
+  defaultEffect,
 }: {
+  defaultEffect: Effect;
   scene: Scene;
   api: ExcalidrawImperativeAPI;
   slide: Slide<ExcalidrawElement>;
@@ -647,7 +732,7 @@ function Inspector({
               ? null
               : {
                   step,
-                  effect: readBuild(element)?.effect ?? effect ?? "fade",
+                  effect: readBuild(element)?.effect ?? effect ?? defaultEffect,
                 },
           ),
         ]),
@@ -682,7 +767,7 @@ function Inspector({
           element.id,
           withBuild(element.customData, {
             step: first + index,
-            effect: readBuild(element)?.effect ?? "fade",
+            effect: readBuild(element)?.effect ?? defaultEffect,
           }),
         ]),
       ),
@@ -1821,6 +1906,169 @@ function SlideAlignment({
         Select objects to align them within the safe margins. Multiple objects
         move together.
       </p>
+    </details>
+  );
+}
+
+function DeckDefaultsEditor({
+  deck,
+  onChange,
+  onApply,
+  disabled,
+}: {
+  deck: DeckDefaults;
+  onChange: (patch: Partial<DeckDefaults>) => void;
+  onApply: (kind: "size" | "transition" | "effect") => void;
+  disabled: boolean;
+}) {
+  const [size, setSize] = useState(deck.size ?? { width: 1600, height: 900 });
+  useEffect(() => {
+    if (deck.size) setSize(deck.size);
+  }, [deck.size?.width, deck.size?.height]);
+  return (
+    <details className="deck-defaults">
+      <summary>Deck defaults</summary>
+      <p className="hint">
+        Used for new slides and new animations. Apply to all to update existing
+        slides.
+      </p>
+      <label className="inspector-check">
+        <input
+          type="checkbox"
+          checked={!!deck.size}
+          onChange={(event) =>
+            onChange({
+              size: event.target.checked
+                ? validSize(size.width, size.height)
+                  ? size
+                  : { width: 1600, height: 900 }
+                : null,
+            })
+          }
+        />
+        Use a default slide size
+      </label>
+      {deck.size && (
+        <>
+          <label className="inspector-field">
+            Default slide size
+            <select
+              className="inspector-select"
+              aria-label="Default slide size"
+              value={
+                slideSizes.find(
+                  (option) =>
+                    option.width === deck.size?.width &&
+                    option.height === deck.size?.height,
+                )?.label ?? "custom"
+              }
+              onChange={(event) => {
+                const option = slideSizes.find(
+                  (option) => option.label === event.target.value,
+                );
+                if (option)
+                  onChange({
+                    size: { width: option.width, height: option.height },
+                  });
+              }}
+            >
+              {slideSizes.map((option) => (
+                <option key={option.label}>{option.label}</option>
+              ))}
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <SizeInputs {...size} onChange={setSize} />
+          <button
+            className="slides-button"
+            disabled={!validSize(size.width, size.height)}
+            onClick={() => onChange({ size })}
+          >
+            Set default size
+          </button>
+          <button
+            className="slides-button"
+            disabled={disabled}
+            onClick={() => onApply("size")}
+          >
+            Apply size to all slides
+          </button>
+          <p className="hint">
+            Changes frame dimensions. Contents keep their size and position.
+          </p>
+        </>
+      )}
+      <label className="inspector-field">
+        Default transition
+        <select
+          className="inspector-select"
+          aria-label="Default transition"
+          value={deck.transition}
+          onChange={(event) =>
+            onChange({
+              transition: event.target.value as DeckDefaults["transition"],
+            })
+          }
+        >
+          {transitions.map((value) => (
+            <option key={value} value={value}>
+              {transitionLabels[value]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="inspector-field">
+        Default speed
+        <select
+          className="inspector-select"
+          aria-label="Default transition speed"
+          value={deck.duration}
+          disabled={deck.transition === "cut"}
+          onChange={(event) =>
+            onChange({ duration: Number(event.target.value) })
+          }
+        >
+          {!speeds.some((speed) => speed.duration === deck.duration) && (
+            <option value={deck.duration}>{deck.duration} ms</option>
+          )}
+          {speeds.map((speed) => (
+            <option key={speed.duration} value={speed.duration}>
+              {speed.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        className="slides-button"
+        disabled={disabled}
+        onClick={() => onApply("transition")}
+      >
+        Apply transition to all slides
+      </button>
+      <label className="inspector-field">
+        Default animation effect
+        <select
+          className="inspector-select"
+          aria-label="Default animation effect"
+          value={deck.effect}
+          onChange={(event) =>
+            onChange({ effect: event.target.value as Effect })
+          }
+        >
+          {effects.map((value) => (
+            <option key={value} value={value}>
+              {effectLabels[value]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        className="slides-button"
+        disabled={disabled}
+        onClick={() => onApply("effect")}
+      >
+        Apply effect to all builds
+      </button>
     </details>
   );
 }
