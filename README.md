@@ -13,19 +13,21 @@
 Run the following command to build and install Excali Desktop in `~/Applications` on your computer.
 
 ```sh
-npm run desktop:build && mkdir -p ~/Applications && rm -rf ~/Applications/"Excali Desktop.app" && ditto src-tauri/target/release/bundle/macos/"Excali Desktop.app" ~/Applications/"Excali Desktop.app"
+bun run desktop:build && mkdir -p ~/Applications && rm -rf ~/Applications/"Excali Desktop.app" && ditto src-tauri/target/release/bundle/macos/"Excali Desktop.app" ~/Applications/"Excali Desktop.app"
 ```
 
 ## Run
 
-Install Node.js 22.6+ (Node 22 LTS recommended), Rust, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system. On macOS, install Xcode Command Line Tools with `xcode-select --install`.
+Install [Bun](https://bun.sh/) 1.4.0+, Rust, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system. On macOS, install Xcode Command Line Tools with `xcode-select --install`.
 
 ```sh
-npm ci
-npm run desktop
+bun install --frozen-lockfile
+bun run desktop
 ```
 
 The installation step copies bundled Excalidraw fonts into `public/fonts`. They are included in the app, so editing does not require a CDN, account, or server. Internet access is required to install dependencies, not to use the built editor.
+
+Bun manages dependencies and runs the JavaScript tooling and tests; Node.js is not required. Vite builds the frontend, and Tauri still uses Rust and the system webview for the desktop app. Faster tooling does not directly change the app's runtime performance. Commit `bun.lock` when changing dependencies.
 
 ## Use
 
@@ -42,6 +44,17 @@ Drawings live in `~/.excali-desktop`. The sidebar shows that folder as a tree of
 - Cmd/Ctrl+N (new tab), Cmd/Ctrl+O, Cmd/Ctrl+S, and Cmd/Ctrl+Shift+S are supported. Save and Save as apply to the current tab.
 - The application asks you to save, discard, or cancel before closing a modified drawing, including when quitting, once for each modified tab.
 
+### Presentations
+
+Every frame is a slide. Draw frames with the frame tool (F), then press **Present** (⇧⌘P / Shift+Ctrl+P) in the sidebar or the play button at the top right of the canvas.
+
+- **Slides** at the top right of the canvas opens the slides panel: drag thumbnails, or use ⌥↑/⌥↓ on a focused one, to reorder them. Click a slide to go to it; double-click to present from it.
+- With a slide or anything on it selected, the panel sets how the slide comes in (**Move** flies the camera across the canvas, **Dissolve** crossfades, **Cut** is instant), the speed, and whether to skip it when presenting.
+- **Builds** reveal a slide one step at a time. Select elements on a slide and pick a build number; elements with the same number appear together, with a Fade, Rise, or Appear effect. The build list selects a build's elements and moves builds earlier or later.
+- While presenting: → / Space / Enter or a click goes to the next build or slide, ← / Backspace or a right-click goes back, ⇧→/⇧← skip whole slides, Home/End jump to the ends, a number followed by Enter jumps to that slide, L toggles the laser pointer, B or W blanks the screen, ? lists the shortcuts, and Esc ends the presentation.
+
+Slides are shown fullscreen and letterboxed to each frame's shape. Slide order, transitions, and builds are saved in the drawing (in the elements' `customData`), so they travel with the file; excalidraw.com ignores them. Presenting never modifies the drawing. With reduced motion turned on in the system settings, transitions and builds are instant.
+
 Use Open for drawings and Excalidraw's Insert image tool for images. File drag-and-drop is not supported in this first version. The canvas is temporarily inactive during file operations.
 
 Each tab keeps its own undo history while it is open. Images are embedded in saved files. Saves use a temporary file in the destination folder and replace the destination only after the complete write succeeds.
@@ -53,7 +66,7 @@ Unsaved edits are debounced into the recovery snapshot approximately 800 ms afte
 ## Build
 
 ```sh
-npm run desktop:build
+bun run desktop:build
 ```
 
 On macOS the app is generated at `src-tauri/target/release/bundle/macos/Excali Desktop.app`. The current bundle target is a macOS `.app`; Windows/Linux packaging targets and signing should be configured when those distributions are needed.
@@ -61,7 +74,7 @@ On macOS the app is generated at `src-tauri/target/release/bundle/macos/Excali D
 ## Frontend preview
 
 ```sh
-npm run dev
+bun run dev
 ```
 
 Open `http://127.0.0.1:5173`. The browser preview imports drawings through a file input and saves through downloads; it cannot overwrite desktop files. Recovery uses local storage in this mode. Use the desktop command for native file persistence.
@@ -69,8 +82,8 @@ Open `http://127.0.0.1:5173`. The browser preview imports drawings through a fil
 ## Checks
 
 ```sh
-npm run build
-npm test
+bun run build
+bun test
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
@@ -79,6 +92,6 @@ The small tests cover invalid-document rejection, ordered recovery writes after 
 
 ## Boundaries
 
-No presentation tools, document version history, sync, or account system yet. Deleting and moving drawings is done in Finder for now; the sidebar refreshes when the window regains focus. Files modified externally are not watched; saving will replace the current file. The core editor and fonts are local; the production content-security policy blocks remote resources and embedded web pages.
+No document version history, sync, or account system yet. Presentations have no presenter view or speaker notes, and slides can't be exported to PDF. Deleting and moving drawings is done in Finder for now; the sidebar refreshes when the window regains focus. Files modified externally are not watched; saving will replace the current file. The core editor and fonts are local; the production content-security policy blocks remote resources and embedded web pages.
 
 Excalidraw and the other dependencies retain their respective licenses. This wrapper is not an official Excalidraw application.

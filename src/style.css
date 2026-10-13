@@ -99,7 +99,8 @@ kbd { font: inherit; font-size: 12px; color: var(--faint); }
 .tab.dirty:hover .dirty-dot, .tab:has(.tab-close:focus-visible) .dirty-dot { display: none; }
 .tabs > .icon-button { flex-shrink: 0; }
 
-.editor { flex: 1; min-height: 0; position: relative; }
+.editor { flex: 1; min-height: 0; display: flex; }
+.canvases { flex: 1; min-width: 0; position: relative; }
 /* Hidden editors keep their size so they need no relayout when shown again. */
 .canvas { position: absolute; inset: 0; }
 .canvas:not(.active) { visibility: hidden; }
@@ -119,6 +120,99 @@ kbd { font: inherit; font-size: 12px; color: var(--faint); }
 .dialog-actions button:hover { background: var(--hover); }
 .dialog-actions button.primary { border-color: var(--primary); background: var(--primary); color: var(--island); }
 .dialog-actions button.primary:hover { border-color: var(--primary-darker); background: var(--primary-darker); }
+
+/* Slides */
+.slides-triggers { display: flex; gap: 6px; }
+.present-trigger { display: grid; place-items: center; width: var(--lg-button-size); height: var(--lg-button-size); padding: 0; border: 0; border-radius: var(--border-radius-lg); background: var(--color-primary); color: var(--color-surface-lowest); }
+.present-trigger:hover { background: var(--color-primary-darker); }
+.slides { width: 264px; flex-shrink: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--sidebar); user-select: none; -webkit-user-select: none; cursor: default; }
+.slides-header { display: flex; align-items: center; justify-content: space-between; height: 44px; flex-shrink: 0; padding: 0 8px 0 14px; }
+.slides-header h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.slides-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 0 14px 16px; overflow-y: auto; font-size: 13px; }
+.slides-panel .hint { margin: 0; color: var(--muted); font-size: 12px; }
+.slides-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.slides-button:hover { background: var(--hover); }
+.slides-button.primary { border-color: var(--primary); background: var(--primary); color: var(--island); }
+.slides-button.primary:hover { border-color: var(--primary-darker); background: var(--primary-darker); }
+.slides-button kbd { color: inherit; opacity: 0.6; }
+.slides-empty { align-items: center; justify-content: center; color: var(--muted); }
+.slides-empty p { margin: 0 0 4px; font-size: 14px; font-weight: 500; }
+
+.slides-list { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.slide-card { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.slide-card.dragging { opacity: 0.4; }
+.slide-card.drop-before::before, .slide-card.drop-after::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; border-radius: 1px; background: var(--primary); }
+.slide-card.drop-before::before { top: -7px; }
+.slide-card.drop-after::after { bottom: -7px; }
+.slide-thumb { position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas); overflow: hidden; cursor: pointer; }
+.slide-thumb:hover { border-color: var(--faint); }
+.slide-thumb[aria-current] { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.slide-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.slide-card.skipped img { opacity: 0.35; }
+.slide-placeholder { display: block; width: 100%; height: 100%; }
+.slide-number, .slide-badge { position: absolute; top: 6px; display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 6px; background: var(--island); box-shadow: 0 0 0 1px var(--line); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.slide-number { left: 6px; }
+.slide-badge { right: 6px; padding: 0 3px; color: var(--muted); }
+.slide-meta { display: flex; align-items: baseline; gap: 8px; padding: 0 2px; }
+.slide-meta .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.slides-inspector { display: flex; flex-direction: column; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+.slides-inspector h3 { margin: 4px 0 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.inspector-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.inspector-row h3 { margin: 0; }
+.inspector-row .slides-button { height: 28px; padding: 0 10px; font-size: 12px; }
+.inspector-field { display: flex; flex-direction: column; gap: 6px; }
+.inspector-label { font-size: 12px; color: var(--muted); }
+.segmented { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--hover); }
+.segmented button { flex: 1; height: 28px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; font-weight: 500; color: var(--muted); }
+.segmented button:hover:not(:disabled) { color: var(--text); }
+.segmented button[aria-checked="true"] { background: var(--island); color: var(--text); box-shadow: 0 0 0 1px var(--line); }
+.segmented button:disabled { opacity: 0.4; cursor: default; }
+.inspector-select { height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--island); color: var(--text); font: inherit; }
+.inspector-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.inspector-check input { margin: 0; accent-color: var(--primary); }
+.build-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.build-list li { display: flex; align-items: center; gap: 2px; }
+.build-select { flex: 1; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; font-size: 13px; text-align: left; }
+.build-select:hover { background: var(--hover); }
+.build-rank { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--active); color: var(--active-text); font-size: 11px; font-weight: 600; }
+.build-list .icon-button:disabled { opacity: 0.3; cursor: default; }
+
+/* Presenter */
+.presenter { position: fixed; inset: 0; z-index: 2000; overflow: hidden; background: #000; color: #ececf1; outline: none; animation: presenter-in 220ms ease-out; }
+@keyframes presenter-in { from { opacity: 0; } }
+/* Its own stacking context, so Excalidraw's layers stay under the mask and input layer. */
+.presenter-stage { position: absolute; inset: 0; z-index: 0; }
+.presenter .layer-ui__wrapper, .presenter .excalidraw-canvas-buttons { display: none !important; }
+.presenter-mask { position: absolute; pointer-events: none; box-shadow: 0 0 0 200vmax #000; }
+.presenter-snapshot { position: absolute; top: 0; left: 0; pointer-events: none; }
+.presenter-input { position: absolute; inset: 0; }
+.presenter.idle .presenter-input { cursor: none; }
+.presenter.laser .presenter-input { pointer-events: none; }
+.presenter-blank { position: absolute; inset: 0; z-index: 5; cursor: none; }
+.presenter-blank.black { background: #000; }
+.presenter-blank.white { background: #fff; }
+.presenter-controls, .presenter-progress, .presenter-jump, .presenter-help { position: absolute; z-index: 3; }
+.presenter-controls { left: 50%; bottom: 24px; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 12px; background: rgb(28 28 33 / 0.86); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 12px 32px rgb(0 0 0 / 0.4); transform: translateX(-50%); transition: opacity 240ms ease, transform 240ms ease; }
+.presenter.idle .presenter-controls:not(:has(:focus-visible)) { opacity: 0; transform: translate(-50%, 8px); pointer-events: none; }
+.presenter-controls button { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: inherit; }
+.presenter-controls button:hover:not(:disabled) { background: rgb(255 255 255 / 0.1); }
+.presenter-controls button:disabled { opacity: 0.3; cursor: default; }
+.presenter-controls button[aria-pressed="true"] { background: #a8a5ff; color: #121212; }
+.presenter-controls button:focus-visible { outline: 2px solid #a8a5ff; outline-offset: 1px; }
+.presenter-counter { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 64px; padding: 0 6px; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.presenter-steps { display: flex; gap: 3px; }
+.presenter-steps i { width: 4px; height: 4px; border-radius: 50%; background: rgb(255 255 255 / 0.3); }
+.presenter-steps i.done { background: #a8a5ff; }
+.presenter-divider { width: 1px; height: 20px; margin: 0 4px; background: rgb(255 255 255 / 0.15); }
+.presenter-progress { left: 0; right: 0; bottom: 0; height: 3px; transition: opacity 240ms ease; }
+.presenter-progress div { height: 100%; background: #a8a5ff; transform-origin: left; transition: transform 300ms ease; }
+.presenter.idle .presenter-progress { opacity: 0; }
+.presenter-jump { top: 24px; left: 50%; padding: 8px 14px; border-radius: 10px; background: rgb(28 28 33 / 0.9); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; transform: translateX(-50%); }
+.presenter-help { top: 50%; left: 50%; padding: 20px 24px; border-radius: 14px; background: rgb(28 28 33 / 0.94); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 24px 60px rgb(0 0 0 / 0.5); transform: translate(-50%, -50%); }
+.presenter-help dl { display: grid; grid-template-columns: auto auto; gap: 10px 28px; margin: 0; font-size: 14px; }
+.presenter-help dt { color: #a4a4b0; font-weight: 500; }
+.presenter-help dd { margin: 0; }
 
 @media (max-width: 760px) { .sidebar { width: 196px; } .sidebar-item kbd { display: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
