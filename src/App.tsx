@@ -6,6 +6,7 @@ import {
   useState,
   type ComponentProps,
   type CSSProperties,
+  type DragEvent,
   type RefObject,
 } from "react";
 import {
@@ -41,6 +42,7 @@ import {
 } from "./document";
 import { cssFamily, fontId, lineHeight, type SystemFont } from "./fonts";
 import { Icon, type IconName } from "./icons";
+import { canDrop, dropFolder, orderedEntries, placeEntry, remapOrder, type DropTarget, type SidebarOrder } from "./sidebar";
 import { getSlides, withSlide, withBuild, fit, isFrame, readSlide, readDeck, withDeck, lockedFrameBounds, type SceneElement } from "./presentation";
 import { applyView, convert, patchElements } from "./mcp-editor";
 import { parseElements, slidesSchema, slideSkeletons, settingsSchema, buildSchema, filesSchema } from "./mcp-schema";
@@ -53,6 +55,7 @@ import {
   desktop,
   forgetDocument,
   listFonts,
+  moveEntry,
   openDocument,
   readDrawing,
   readLinked,
@@ -133,6 +136,15 @@ export default function App() {
   // Where new drawings and folders go; null means the top of the drawings folder.
   const [folder, setFolder] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [order, setOrder] = useState<SidebarOrder>(() => {
+    try {
+      const value = JSON.parse(localStorage.getItem("excali-sidebar-order") ?? "{}");
+      return value && typeof value === "object" && !Array.isArray(value) &&
+        Object.values(value).every((paths) => Array.isArray(paths) && paths.every((path) => typeof path === "string")) ? value : {};
+    } catch { return {}; }
+  });
+  const [dragged, setDragged] = useState<Entry | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const [linked, setLinked] = useState<LinkedDocument[]>([]);
   const [presentation, setPresentation] = useState<Presentation | null>(null);
   // Read by the window-level listeners, which keep their first closure.
@@ -168,6 +180,50 @@ export default function App() {
   function report(reason: unknown) {
     if (mounted.current)
       setError(reason instanceof Error ? reason.message : String(reason));
+  }
+
+  useEffect(() => {
+    try { localStorage.setItem("excali-sidebar-order", JSON.stringify(order)); }
+    catch (reason) { report(reason); }
+  }, [order]);
+
+  function followEntry(from: string, to: string) {
+    const move = (value: string) => remapPath(value, from, to);
+    for (const doc of docs.current) if (doc.path) doc.path = move(doc.path);
+    render();
+    setFolder((value) => value && move(value));
+    setExpanded((previous) => new Set([...previous].map(move)));
+  }
+
+  function dragOver(event: DragEvent, target: DropTarget) {
+    if (!dragged) return;
+    event.stopPropagation();
+    if (busyRef.current || renaming || !canDrop(dragged, target)) {
+      event.dataTransfer.dropEffect = "none";
+      setDropTarget(null);
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTarget(target);
+  }
+
+  function dropEntry(event: DragEvent, target: DropTarget) {
+    if (!dragged) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const entry = dragged;
+    setDragged(null);
+    setDropTarget(null);
+    if (!workspace || renaming || !canDrop(entry, target)) return;
+    void run(async () => {
+      const destination = dropFolder(target);
+      const next = parentPath(entry.path) === destination ? entry.path : await moveEntry(entry.path, destination);
+      followEntry(entry.path, next);
+      setOrder((previous) => placeEntry(previous, workspace.entries, entry.path, next, target));
+      if (destination !== workspace.root) setExpanded((previous) => new Set([...previous, destination]));
+      await refresh();
+    });
   }
 
   useEffect(() => {
@@ -481,11 +537,8 @@ export default function App() {
       if (name === null || !name.trim() || name.trim() === entry.name) return;
       void run(async () => {
         const next = await renameEntry(entry.path, name);
-        const move = (value: string) => remapPath(value, entry.path, next);
-        for (const doc of docs.current) if (doc.path) doc.path = move(doc.path);
-        render();
-        setFolder((value) => value && move(value));
-        setExpanded((previous) => new Set([...previous].map(move)));
+        followEntry(entry.path, next);
+        setOrder((previous) => remapOrder(previous, entry.path, next));
         await refresh();
       });
     },
@@ -954,7 +1007,10 @@ export default function App() {
               onClick={() => handlers.current.present()}
             />
           </nav>
-          <div className="sidebar-heading">
+          <div className={`sidebar-heading ${dropTarget?.path === workspace?.root ? "drop-inside" : ""}`}
+            onDragOver={(event) => workspace && dragOver(event, { path: workspace.root, position: "inside" })}
+            onDrop={(event) => workspace && dropEntry(event, { path: workspace.root, position: "inside" })}
+          >
             <button
               className="heading-label"
               disabled={!workspace}
@@ -980,6 +1036,11 @@ export default function App() {
             role="tree"
             aria-label="Drawings"
             data-tauri-drag-region
+            onDragOver={(event) => workspace && dragOver(event, { path: workspace.root, position: "inside" })}
+            onDrop={(event) => workspace && dropEntry(event, { path: workspace.root, position: "inside" })}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null);
+            }}
           >
             {(!path ||
               !workspace ||
@@ -1000,7 +1061,7 @@ export default function App() {
             )}
             {workspace && (
               <Tree
-                entries={workspace.entries}
+                entries={orderedEntries(workspace.entries, order)}
                 depth={0}
                 tree={{
                   path,
@@ -1009,6 +1070,17 @@ export default function App() {
                   folder,
                   renaming,
                   disabled,
+                  dragged,
+                  dropTarget,
+                  dragStart: (event, entry) => {
+                    if (disabled || renaming) { event.preventDefault(); return; }
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("application/x-excali-entry", entry.path);
+                    setDragged(entry);
+                  },
+                  dragEnd: () => { setDragged(null); setDropTarget(null); },
+                  dragOver,
+                  drop: dropEntry,
                   open: (entry) => {
                     if (!entry.folder)
                       return handlers.current.openEntry(entry.path);
@@ -1389,6 +1461,12 @@ function SidebarItem({
 }
 
 type TreeContext = {
+  dragged: Entry | null;
+  dropTarget: DropTarget | null;
+  dragStart: (event: DragEvent, entry: Entry) => void;
+  dragEnd: () => void;
+  dragOver: (event: DragEvent, target: DropTarget) => void;
+  drop: (event: DragEvent, target: DropTarget) => void;
   path: string | null;
   edited: Set<string>;
   expanded: Set<string>;
@@ -1417,6 +1495,11 @@ function Tree({
         const active = !entry.folder && entry.path === tree.path;
         const icon = entry.folder ? (expanded ? "open" : "folder") : "file";
         const style = { "--depth": depth } as CSSProperties;
+        const target = (event: DragEvent): DropTarget => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const offset = (event.clientY - bounds.top) / bounds.height;
+          return { path: entry.path, position: entry.folder && offset >= 0.25 && offset <= 0.75 ? "inside" : offset < 0.5 ? "before" : "after" };
+        };
         return (
           <Fragment key={entry.path}>
             {tree.renaming === entry.path ? (
@@ -1431,8 +1514,13 @@ function Tree({
               </div>
             ) : (
               <div
-                className={`tree-row ${active ? "active" : ""} ${entry.path === tree.folder ? "selected" : ""}`}
+                className={`tree-row ${active ? "active" : ""} ${entry.path === tree.folder ? "selected" : ""} ${tree.dragged?.path === entry.path ? "dragging" : ""} ${tree.dropTarget?.path === entry.path ? `drop-${tree.dropTarget.position}` : ""}`}
                 style={style}
+                draggable={!tree.disabled && !tree.renaming}
+                onDragStart={(event) => tree.dragStart(event, entry)}
+                onDragEnd={tree.dragEnd}
+                onDragOver={(event) => tree.dragOver(event, target(event))}
+                onDrop={(event) => tree.drop(event, target(event))}
                 onContextMenu={() => {
                   if (!tree.disabled) tree.menu(entry);
                 }}

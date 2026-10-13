@@ -246,6 +246,53 @@ async fn rename_entry(app: tauri::AppHandle, path: String, name: String) -> Resu
 }
 
 #[tauri::command]
+async fn move_entry(app: tauri::AppHandle, path: String, folder: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        move_in_workspace(&workspace_root(&app)?, &path, &folder)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn move_in_workspace(root: &Path, path: &str, folder: &str) -> Result<String, String> {
+    let source = in_workspace(root, Path::new(path))?;
+    let folder = workspace_folder(root, folder)?;
+    for location in [&source, &folder] {
+        if location
+            .strip_prefix(root)
+            .map_err(|e| e.to_string())?
+            .components()
+            .any(|part| part.as_os_str().to_string_lossy().starts_with('.'))
+        {
+            return Err("Choose a drawing or folder from the sidebar".into());
+        }
+    }
+    let name = source.file_name().ok_or("Missing file name")?;
+    valid_name(&name.to_string_lossy())?;
+    let kind = source
+        .symlink_metadata()
+        .map_err(|e| e.to_string())?
+        .file_type();
+    if !(kind.is_dir() || kind.is_file() && source.extension().is_some_and(|e| e == EXTENSION)) {
+        return Err("Choose a drawing or folder from the sidebar".into());
+    }
+    if folder.starts_with(&source) {
+        return Err("A folder can't be moved inside itself".into());
+    }
+    let target = folder.join(name);
+    if target != source {
+        if target.symlink_metadata().is_ok() {
+            return Err(format!(
+                "“{}” already exists in this folder",
+                name.to_string_lossy()
+            ));
+        }
+        fs::rename(&source, &target).map_err(|e| e.to_string())?;
+    }
+    Ok(target.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 async fn delete_entry(app: tauri::AppHandle, path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let target = in_workspace(&workspace_root(&app)?, Path::new(&path))?;
@@ -703,6 +750,7 @@ pub fn run() {
             create_drawing,
             create_folder,
             rename_entry,
+            move_entry,
             delete_entry,
             linked_documents,
             forget_document
@@ -722,6 +770,39 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn moves_drawings_and_folders_without_overwriting_or_escaping() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let folder = root.join("folder");
+        let child = folder.join("child");
+        fs::create_dir_all(&child).unwrap();
+        let drawing = root.join("a.excalidraw");
+        fs::write(&drawing, "drawing").unwrap();
+        let move_to = |source: &Path, target: &Path| {
+            move_in_workspace(&root, &source.to_string_lossy(), &target.to_string_lossy())
+        };
+        let moved = move_to(&drawing, &folder).unwrap();
+        assert_eq!(fs::read_to_string(&moved).unwrap(), "drawing");
+        fs::write(&drawing, "other").unwrap();
+        assert!(move_to(&drawing, &folder).is_err());
+        assert_eq!(fs::read_to_string(&drawing).unwrap(), "other");
+        assert!(move_to(&folder, &child).is_err());
+        let outside = tempfile::tempdir().unwrap();
+        assert!(move_to(&drawing, outside.path()).is_err());
+        let moved_child = move_to(&child, &root).unwrap();
+        assert!(Path::new(&moved_child).is_dir());
+        let hidden = root.join(".app");
+        fs::create_dir(&hidden).unwrap();
+        assert!(move_to(&hidden, &folder).is_err());
+        assert!(move_to(&drawing, &hidden).is_err());
+        #[cfg(unix)]
+        {
+            let link = root.join("link.excalidraw");
+            std::os::unix::fs::symlink(&drawing, &link).unwrap();
+            assert!(move_to(&link, &folder).is_err());
+        }
+    }
     #[test]
     fn replaces_existing_document_and_preserves_it_on_failure() {
         let dir = tempfile::tempdir().unwrap();

@@ -140,6 +140,27 @@ button:focus-visible {
   position: relative;
   margin-bottom: 1px;
 }
+.tree-row.dragging {
+  opacity: 0.45;
+}
+.drop-inside {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px var(--primary);
+  background: var(--active);
+}
+.tree-row.drop-before::before,
+.tree-row.drop-after::after {
+  content: "";
+  position: absolute;
+  left: calc(10px + var(--depth) * 16px);
+  right: 0;
+  height: 2px;
+  background: var(--primary);
+  pointer-events: none;
+  z-index: 1;
+}
+.tree-row.drop-before::before { top: -1px; }
+.tree-row.drop-after::after { bottom: -1px; }
 .tree-row .sidebar-item {
   padding-left: calc(10px + var(--depth) * 16px);
 }
