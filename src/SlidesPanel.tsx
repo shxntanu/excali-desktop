@@ -26,6 +26,10 @@ import type {
 import { Icon } from "./icons";
 import {
   effects,
+  buildTargets,
+  buildOwners,
+  buildLabel,
+  reorderBuilds,
   getSlides,
   isFrame,
   move,
@@ -165,9 +169,12 @@ function Panel({ api, onPlay }: { api: ExcalidrawImperativeAPI; onPlay: Play }) 
     );
   }, [scene]);
   const frame = selected.find(isFrame);
-  const current = frame
+  const [activeSlide, setActiveSlide] = useState<string | null>(null);
+  const inferred = frame
     ? slides.find((slide) => slide.frame.id === frame.id)
     : selected[0] && slideOf(slides, selected[0]);
+  const current = inferred ?? slides.find((slide) => slide.frame.id === activeSlide);
+  useEffect(() => { if (inferred) setActiveSlide(inferred.frame.id); }, [inferred?.frame.id]);
 
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
   const focusAfter = useRef<number | null>(null);
@@ -222,6 +229,7 @@ function Panel({ api, onPlay }: { api: ExcalidrawImperativeAPI; onPlay: Play }) 
   }
 
   function show(slide: Slide) {
+    setActiveSlide(slide.frame.id);
     select([slide.frame.id]);
     api.scrollToContent(slide.frame as ExcalidrawElement, {
       fitToViewport: true,
@@ -400,14 +408,17 @@ function Inspector({
       ? option
       : best,
   );
-  const members = new Set(slide.elements.map((element) => element.id));
   const others = selected.filter((element) => !isFrame(element));
-  // Builds apply to whole elements: bound text follows its container.
-  const targets = others.every((element) => members.has(element.id))
-    ? others.filter(
-        (element) => !("containerId" in element && element.containerId),
-      )
-    : [];
+  const targets = buildTargets(slide, selected);
+  const [buildDrag, setBuildDrag] = useState<number | null>(null);
+  const [dropBuild, setDropBuild] = useState<number | null>(null);
+  const buildList = useRef<HTMLOListElement>(null);
+  const buildFocus = useRef<number | null>(null);
+  useEffect(() => {
+    if (buildFocus.current === null) return;
+    buildList.current?.querySelectorAll<HTMLButtonElement>(".build-select")[buildFocus.current]?.focus();
+    buildFocus.current = null;
+  });
   const ranks = targets.map((element) => slide.ranks.get(element.id) ?? 0);
   const rank =
     ranks.length && ranks.every((value) => value === ranks[0])
@@ -418,8 +429,7 @@ function Inspector({
     built.map((element) => readBuild(element)!.effect),
   );
   const effect = effectsInUse.size === 1 ? [...effectsInUse][0] : null;
-  const owners = (step: number) =>
-    slide.elements.filter((element) => readBuild(element)?.step === step);
+  const owners = (step: number) => buildOwners(slide, step);
 
   function setRank(value: string) {
     const step =
@@ -461,23 +471,16 @@ function Inspector({
     );
   }
 
-  function swap(position: number, direction: -1 | 1) {
-    const a = slide.steps[position],
-      b = slide.steps[position + direction];
-    patch(
-      new Map(
-        [...owners(a), ...owners(b)].map((element) => {
-          const build = readBuild(element)!;
-          return [
-            element.id,
-            withBuild(element.customData, {
-              ...build,
-              step: build.step === a ? b : a,
-            }),
-          ];
-        }),
-      ),
-    );
+  function reorderBuild(from: number, to: number) {
+    if (from === to || to < 0 || to >= slide.steps.length) return;
+    patch(reorderBuilds(slide, from, to));
+  }
+
+  function revealSeparately() {
+    const first = (slide.steps.at(-1) ?? 0) + 1;
+    patch(new Map(targets.map((element, index) => [element.id, withBuild(element.customData, {
+      step: first + index, effect: readBuild(element)?.effect ?? "fade",
+    })])));
   }
 
   return (
@@ -523,9 +526,13 @@ function Inspector({
         Skip when presenting
       </label>
 
-      <h3>Builds</h3>
+      <h3>Animations</h3>
       {targets.length > 0 ? (
         <>
+          <div className="build-actions">
+            <button className="slides-button" onClick={() => setRank("new")}>Reveal together</button>
+            <button className="slides-button" disabled={targets.length < 2} onClick={revealSeparately}>Reveal separately</button>
+          </div>
           <Field
             label={
               targets.length === 1
@@ -535,6 +542,7 @@ function Inspector({
           >
             <select
               className="inspector-select"
+              aria-label="Selected objects build"
               value={rank === null ? "" : rank === 0 ? "none" : String(rank)}
               onChange={(event) => setRank(event.target.value)}
             >
@@ -573,38 +581,55 @@ function Inspector({
         </p>
       )}
       {slide.steps.length > 0 && (
-        <ol className="build-list">
+        <ol className="build-list" aria-label="Animation builds" ref={buildList}>
           {slide.steps.map((step, position) => {
-            const count = owners(step).length;
+            const objects = owners(step);
+            const labels = objects.filter((element) => !("containerId" in element && element.containerId));
+            const name = (labels.length ? labels : objects).map((element) => buildLabel(slide, element)).join(", ");
+            const selectedBuild = targets.some((element) => slide.ranks.get(element.id) === position + 1);
+            const rowEffects = new Set(objects.map((element) => readBuild(element)!.effect));
             return (
-              <li key={step}>
-                <button
-                  className="build-select"
-                  onClick={() =>
-                    select(owners(step).map((element) => element.id))
-                  }
-                >
-                  <span className="build-rank">{position + 1}</span>
-                  {count} {count === 1 ? "element" : "elements"}
-                </button>
-                <button
-                  className="icon-button"
-                  disabled={position === 0}
-                  onClick={() => swap(position, -1)}
-                  aria-label={`Move build ${position + 1} earlier`}
-                  title="Earlier"
-                >
-                  <Icon name="up" size={14} />
-                </button>
-                <button
-                  className="icon-button"
-                  disabled={position === slide.steps.length - 1}
-                  onClick={() => swap(position, 1)}
-                  aria-label={`Move build ${position + 1} later`}
-                  title="Later"
-                >
-                  <Icon name="down" size={14} />
-                </button>
+              <li key={step} className={`${selectedBuild ? "selected" : ""} ${dropBuild === position ? "build-drop" : ""}`}
+                onDragOver={(event) => { if (buildDrag !== null) { event.preventDefault(); setDropBuild(position); } }}
+                onDrop={(event) => {
+                  if (buildDrag === null) return;
+                  event.preventDefault(); reorderBuild(buildDrag, position); setBuildDrag(null); setDropBuild(null);
+                }}>
+                <div className="build-row">
+                  <button className="build-select" draggable aria-pressed={selectedBuild}
+                    title={`${name} — drag or use ⌥↑ / ⌥↓ to reorder`}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("application/x-excali-build", String(position));
+                      event.dataTransfer.effectAllowed = "move"; setBuildDrag(position);
+                    }}
+                    onDragEnd={() => { setBuildDrag(null); setDropBuild(null); }}
+                    onKeyDown={(event) => {
+                      if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+                      event.preventDefault();
+                      const to = position + (event.key === "ArrowUp" ? -1 : 1);
+                      if (to < 0 || to >= slide.steps.length) return;
+                      buildFocus.current = to; reorderBuild(position, to);
+                    }}
+                    onClick={() => select(objects.map((element) => element.id))}>
+                    <span className="build-rank">{position + 1}</span>
+                    <span className="build-name">{name}</span>
+                  </button>
+                  <button className="icon-button" disabled={position === 0} onClick={() => reorderBuild(position, position - 1)}
+                    aria-label={`Move build ${position + 1} earlier`} title="Earlier"><Icon name="up" size={14} /></button>
+                  <button className="icon-button" disabled={position === slide.steps.length - 1} onClick={() => reorderBuild(position, position + 1)}
+                    aria-label={`Move build ${position + 1} later`} title="Later"><Icon name="down" size={14} /></button>
+                  <button className="icon-button" aria-label={`Remove build ${position + 1}`} title="Remove animation"
+                    onClick={() => patch(new Map(objects.map((element) => [element.id, withBuild(element.customData, null)])))}><Icon name="close" size={14} /></button>
+                </div>
+                <label className="build-effect">Effect
+                  <select className="inspector-select" aria-label={`Build ${position + 1} effect`} value={rowEffects.size === 1 ? [...rowEffects][0] : ""}
+                    onChange={(event) => patch(new Map(objects.map((element) => [element.id, withBuild(element.customData, {
+                      step, effect: event.target.value as Effect,
+                    })])))}>
+                    {rowEffects.size > 1 && <option value="" disabled>Mixed</option>}
+                    {effects.map((effect) => <option key={effect} value={effect}>{effectLabels[effect]}</option>)}
+                  </select>
+                </label>
               </li>
             );
           })}

@@ -1036,3 +1036,14 @@ kbd {
 .frame-size summary { cursor: pointer; font-size: 12px; }
 .frame-size[open] > :not(summary) { margin-top: 10px; }
 .slides-button:disabled { opacity: 0.4; cursor: default; }
+
+.build-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.build-actions .slides-button { flex: 1; padding: 0 7px; font-size: 12px; }
+.build-list li { display: block; padding: 4px; border-radius: 8px; }
+.build-list li.selected { background: var(--active); }
+.build-list li.build-drop { outline: 2px solid var(--primary); }
+.build-row { display: flex; align-items: center; min-width: 0; }
+.build-select { min-width: 0; height: 32px; }
+.build-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.build-effect { display: flex; align-items: center; gap: 8px; padding-left: 34px; font-size: 12px; color: var(--muted); }
+.build-effect select { flex: 1; height: 26px; font-size: 12px; }

@@ -365,3 +365,33 @@ export function lockedFrameBounds(previous: Bounds, next: Bounds, ratio: number)
     height,
   };
 }
+
+// Bound labels are controlled by their container, including when only the label is selected.
+export function buildTargets<T extends SceneElement>(slide: Slide<T>, selected: readonly T[]): T[] {
+  const members = new Map(slide.elements.map((element) => [element.id, element]));
+  const objects = selected.filter((element) => !isFrame(element));
+  if (objects.some((element) => !members.has(element.id))) return [];
+  return [...new Map(objects.map((element) => {
+    const owner = (element.containerId && members.get(element.containerId)) || element;
+    return [owner.id, owner];
+  })).values()];
+}
+
+export function buildOwners<T extends SceneElement>(slide: Slide<T>, step: number): T[] {
+  return slide.elements.filter((element) => readBuild(element)?.step === step);
+}
+
+export function reorderBuilds<T extends SceneElement>(slide: Slide<T>, from: number, to: number) {
+  const order = move(slide.steps, from, to);
+  return new Map(slide.elements.flatMap((element) => {
+    const build = readBuild(element);
+    return build ? [[element.id, withBuild(element.customData, { ...build, step: order.indexOf(build.step) + 1 })] as const] : [];
+  }));
+}
+
+export function buildLabel<T extends SceneElement>(slide: Slide<T>, element: T): string {
+  const text = element as T & { text?: string };
+  const bound = slide.elements.find((member) => member.containerId === element.id) as (T & { text?: string }) | undefined;
+  return (text.text || bound?.text)?.replace(/\s+/g, " ").trim() ||
+    ({ rectangle: "Rectangle", ellipse: "Ellipse", diamond: "Diamond", arrow: "Arrow", line: "Line", freedraw: "Drawing", image: "Image", text: "Text", embeddable: "Embed" }[element.type] ?? "Object");
+}
