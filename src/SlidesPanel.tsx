@@ -27,6 +27,7 @@ import type {
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 import { Icon } from "./icons";
+import { duplicateSlideElements } from "./slide-authoring";
 import {
   BUILD_DURATION,
   buildAppearance,
@@ -262,14 +263,18 @@ function Panel({
     setDrag(null);
   }
 
-  function createSlide(width: number, height: number) {
+  function createSlide(
+    width: number,
+    height: number,
+    after: Slide<ExcalidrawElement> | undefined = current,
+  ) {
     const state = api.getAppState();
     const live = api.getSceneElements();
     const x = live.length
       ? Math.max(...live.map((element) => element.x + element.width)) + 160
       : state.width / 2 / state.zoom.value - state.scrollX - width / 2;
     const y =
-      current?.frame.y ??
+      after?.frame.y ??
       state.height / 2 / state.zoom.value - state.scrollY - height / 2;
     const [created] = convertToExcalidrawElements([
       {
@@ -286,8 +291,12 @@ function Panel({
       },
     ]);
     const frame = newElementWith(created, { x, y, width, height });
+    const order = after ? slides.indexOf(after) + 1 : slides.length;
     const orders = new Map(
-      slides.map((slide, order) => [slide.frame.id, order]),
+      slides.map((slide, index) => [
+        slide.frame.id,
+        index < order ? index : index + 1,
+      ]),
     );
     api.updateScene({
       elements: [
@@ -300,7 +309,9 @@ function Panel({
               })
             : element,
         ),
-        frame,
+        newElementWith(frame, {
+          customData: withSlide(frame.customData, { order }),
+        }),
       ],
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
@@ -308,8 +319,102 @@ function Panel({
     show(getSlides([frame])[0]);
   }
 
+  function duplicate(slide: Slide<ExcalidrawElement>) {
+    const right = Math.max(
+      ...api.getSceneElements().map((element) => element.x + element.width),
+    );
+    const copies = duplicateSlideElements(
+      slide,
+      right + 160 - slide.frame.x,
+      0,
+    );
+    const frame = copies[0] as ExcalidrawFrameLikeElement;
+    const order = slides.indexOf(slide) + 1;
+    const orders = new Map(
+      slides.map((item, index) => [
+        item.frame.id,
+        index < order ? index : index + 1,
+      ]),
+    );
+    copies[0] = newElementWith(frame, {
+      name: `${frame.name || `Slide ${order}`} copy`,
+      customData: withSlide(frame.customData, { order }),
+    });
+    api.updateScene({
+      elements: [
+        ...api
+          .getSceneElementsIncludingDeleted()
+          .map((element) =>
+            orders.has(element.id)
+              ? newElementWith(element, {
+                  customData: withSlide(element.customData, {
+                    order: orders.get(element.id)!,
+                  }),
+                })
+              : element,
+          ),
+        ...copies,
+      ],
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+    show(getSlides(copies)[0]);
+  }
+
+  function removeSlide(slide: Slide<ExcalidrawElement>) {
+    const removed = new Set([
+      slide.frame.id,
+      ...slide.elements.map((element) => element.id),
+    ]);
+    const remaining = slides.filter((item) => item !== slide);
+    const orders = new Map(
+      remaining.map((item, order) => [item.frame.id, order]),
+    );
+    api.updateScene({
+      elements: api.getSceneElementsIncludingDeleted().map((element) => {
+        if (removed.has(element.id))
+          return newElementWith(element, { isDeleted: true });
+        let next = element;
+        if (orders.has(element.id))
+          next = newElementWith(next, {
+            customData: withSlide(next.customData, {
+              order: orders.get(element.id)!,
+            }),
+          });
+        if (element.boundElements?.some((bound) => removed.has(bound.id)))
+          next = newElementWith(next, {
+            boundElements: element.boundElements.filter(
+              (bound) => !removed.has(bound.id),
+            ),
+          });
+        if ("startBinding" in next)
+          next = newElementWith(next, {
+            startBinding:
+              next.startBinding && removed.has(next.startBinding.elementId)
+                ? null
+                : next.startBinding,
+            endBinding:
+              next.endBinding && removed.has(next.endBinding.elementId)
+                ? null
+                : next.endBinding,
+          });
+        return next;
+      }),
+      appState: { selectedElementIds: {} },
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+    const next =
+      remaining[Math.min(slides.indexOf(slide), remaining.length - 1)];
+    if (next) show(next);
+    else setActiveSlide(null);
+  }
+
   const newSlide = (
     <NewSlide
+      currentSize={
+        current
+          ? { width: current.frame.width, height: current.frame.height }
+          : undefined
+      }
       onCreate={createSlide}
       onFreeform={() => api.setActiveTool({ type: "frame" })}
     />
@@ -400,6 +505,28 @@ function Panel({
                   </span>
                 )}
               </button>
+              <SlideActions
+                name={name}
+                onNew={() =>
+                  createSlide(slide.frame.width, slide.frame.height, slide)
+                }
+                onDuplicate={() => duplicate(slide)}
+                onDelete={() => removeSlide(slide)}
+                onRename={(name) =>
+                  api.updateScene({
+                    elements: api
+                      .getSceneElementsIncludingDeleted()
+                      .map((element) =>
+                        element.id === slide.frame.id &&
+                        (element.type === "frame" ||
+                          element.type === "magicframe")
+                          ? newElementWith(element, { name })
+                          : element,
+                      ),
+                    captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+                  })
+                }
+              />
               <div className="slide-meta">
                 <span className="label">{name}</span>
                 {slide.steps.length > 0 && (
@@ -931,7 +1058,9 @@ const SIZE_KEY = "excali-slide-size";
 function NewSlide({
   onCreate,
   onFreeform,
+  currentSize,
 }: {
+  currentSize?: { width: number; height: number };
   onCreate: (width: number, height: number) => void;
   onFreeform: () => void;
 }) {
@@ -951,6 +1080,17 @@ function NewSlide({
           option.width === size.width && option.height === size.height,
       )?.label ?? "custom",
   );
+  useEffect(() => {
+    if (!currentSize) return;
+    setSize(currentSize);
+    setPreset(
+      slideSizes.find(
+        (option) =>
+          option.width === currentSize.width &&
+          option.height === currentSize.height,
+      )?.label ?? "custom",
+    );
+  }, [currentSize?.width, currentSize?.height]);
   function create() {
     if (!validSize(size.width, size.height)) return;
     try {
@@ -1424,5 +1564,98 @@ function SlidePreview({
           : `Revealed through build ${level}`}
       </p>
     </div>
+  );
+}
+
+function SlideActions({
+  name,
+  onNew,
+  onDuplicate,
+  onRename,
+  onDelete,
+}: {
+  name: string;
+  onNew: () => void;
+  onDuplicate: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const menu = useRef<HTMLDetailsElement>(null);
+  function act(action: () => void) {
+    if (menu.current) menu.current.open = false;
+    action();
+  }
+  if (renaming)
+    return (
+      <form
+        className="slide-rename"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (draft.trim()) {
+            onRename(draft.trim());
+            setRenaming(false);
+          }
+        }}
+      >
+        <input
+          className="inspector-select"
+          aria-label="Slide name"
+          autoFocus
+          maxLength={200}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setRenaming(false);
+            }
+          }}
+        />
+        <button
+          className="icon-button"
+          type="submit"
+          aria-label="Save slide name"
+          disabled={!draft.trim()}
+        >
+          <Icon name="save" size={14} />
+        </button>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label="Cancel rename"
+          onClick={() => setRenaming(false)}
+        >
+          <Icon name="close" size={14} />
+        </button>
+      </form>
+    );
+  return (
+    <details className="slide-actions" ref={menu}>
+      <summary aria-label={`Actions for ${name}`}>Slide actions</summary>
+      <div className="slide-action-buttons">
+        <button className="slides-button" onClick={() => act(onNew)}>
+          New after
+        </button>
+        <button className="slides-button" onClick={() => act(onDuplicate)}>
+          Duplicate
+        </button>
+        <button
+          className="slides-button"
+          onClick={() =>
+            act(() => {
+              setDraft(name);
+              setRenaming(true);
+            })
+          }
+        >
+          Rename
+        </button>
+        <button className="slides-button" onClick={() => act(onDelete)}>
+          Delete
+        </button>
+      </div>
+    </details>
   );
 }

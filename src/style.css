@@ -1188,3 +1188,29 @@ kbd {
   transform: translate(-50%, -50%);
   pointer-events: auto;
 }
+
+.slide-actions summary {
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.slide-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 6px;
+}
+.slide-action-buttons .slides-button {
+  flex: 1;
+  font-size: 12px;
+  padding: 0 8px;
+}
+.slide-rename {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.slide-rename input {
+  min-width: 0;
+  flex: 1;
+}
