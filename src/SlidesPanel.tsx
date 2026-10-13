@@ -629,7 +629,7 @@ function Panel({
                 {slide.steps.length > 0 && (
                   <span className="hint">
                     {slide.steps.length}{" "}
-                    {slide.steps.length === 1 ? "build" : "builds"}
+                    {slide.steps.length === 1 ? "reveal step" : "reveal steps"}
                   </span>
                 )}
               </div>
@@ -828,7 +828,7 @@ function Inspector({
       </label>
 
       <div className="inspector-row">
-        <h3>Animations</h3>
+        <h3>Reveal steps</h3>
         <button
           className="slides-button"
           aria-pressed={preview}
@@ -844,7 +844,7 @@ function Inspector({
           checked={badges}
           onChange={(event) => setBadges(event.target.checked)}
         />
-        Show build numbers on canvas
+        Show reveal step numbers on canvas
       </label>
       {badges && (
         <BuildBadges slide={slide} state={scene.appState} select={select} />
@@ -872,7 +872,7 @@ function Inspector({
           >
             <select
               className="inspector-select"
-              aria-label="Selected objects build"
+              aria-label="Selected objects reveal step"
               value={rank === null ? "" : rank === 0 ? "none" : String(rank)}
               onChange={(event) => setRank(event.target.value)}
             >
@@ -884,10 +884,12 @@ function Inspector({
               <option value="none">Always visible</option>
               {slide.steps.map((_, position) => (
                 <option key={position} value={String(position + 1)}>
-                  Build {position + 1}
+                  Reveal step {position + 1}
                 </option>
               ))}
-              <option value="new">New build {slide.steps.length + 1}</option>
+              <option value="new">
+                New reveal step {slide.steps.length + 1}
+              </option>
             </select>
           </Field>
           {built.length > 0 && (
@@ -906,16 +908,12 @@ function Inspector({
       ) : (
         <p className="hint">
           {others.length
-            ? "Select elements inside this slide to build them in."
-            : "Select elements on this slide to build them in one at a time."}
+            ? "Select objects inside this slide to reveal them."
+            : "Select objects on this slide to reveal them one step at a time."}
         </p>
       )}
       {slide.steps.length > 0 && (
-        <ol
-          className="build-list"
-          aria-label="Animation builds"
-          ref={buildList}
-        >
+        <ol className="build-list" aria-label="Reveal steps" ref={buildList}>
           {slide.steps.map((step, position) => {
             const objects = owners(step);
             const labels = objects.filter(
@@ -987,7 +985,7 @@ function Inspector({
                     className="icon-button"
                     disabled={position === 0}
                     onClick={() => reorderBuild(position, position - 1)}
-                    aria-label={`Move build ${position + 1} earlier`}
+                    aria-label={`Move reveal step ${position + 1} earlier`}
                     title="Earlier"
                   >
                     <Icon name="up" size={14} />
@@ -996,14 +994,14 @@ function Inspector({
                     className="icon-button"
                     disabled={position === slide.steps.length - 1}
                     onClick={() => reorderBuild(position, position + 1)}
-                    aria-label={`Move build ${position + 1} later`}
+                    aria-label={`Move reveal step ${position + 1} later`}
                     title="Later"
                   >
                     <Icon name="down" size={14} />
                   </button>
                   <button
                     className="icon-button"
-                    aria-label={`Remove build ${position + 1}`}
+                    aria-label={`Remove reveal step ${position + 1}`}
                     title="Remove animation"
                     onClick={() =>
                       patch(
@@ -1023,7 +1021,7 @@ function Inspector({
                   Effect
                   <select
                     className="inspector-select"
-                    aria-label={`Build ${position + 1} effect`}
+                    aria-label={`Reveal step ${position + 1} effect`}
                     value={rowEffects.size === 1 ? [...rowEffects][0] : ""}
                     onChange={(event) =>
                       patch(
@@ -1495,8 +1493,8 @@ function BuildBadges({
                 left: (element.x + state.scrollX) * state.zoom.value,
                 top: (element.y + state.scrollY) * state.zoom.value,
               }}
-              aria-label={`Build ${rank}: ${buildLabel(slide, element)}`}
-              title={`Build ${rank}: ${buildLabel(slide, element)}`}
+              aria-label={`Reveal step ${rank}: ${buildLabel(slide, element)}`}
+              title={`Reveal step ${rank}: ${buildLabel(slide, element)}`}
               onClick={() => select([element.id])}
             >
               {rank}
@@ -1622,7 +1620,7 @@ function SlidePreview({
     <div
       className="slide-preview"
       role="group"
-      aria-label="Build preview"
+      aria-label="Reveal preview"
       onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
           return;
@@ -1661,7 +1659,7 @@ function SlidePreview({
         <button
           className="icon-button"
           disabled={level === 0}
-          aria-label="Previous build preview"
+          aria-label="Previous reveal step"
           onClick={() => setStep(level - 1)}
         >
           <Icon name="previous" size={14} />
@@ -1672,14 +1670,14 @@ function SlidePreview({
         <button
           className="icon-button"
           disabled={level === slide.steps.length}
-          aria-label="Next build preview"
+          aria-label="Next reveal step"
           onClick={() => setStep(level + 1)}
         >
           <Icon name="next" size={14} />
         </button>
         <button
           className="slides-button"
-          aria-label="Restart build preview"
+          aria-label="Restart reveal preview"
           onClick={() => setStep(0)}
         >
           Restart
@@ -1688,7 +1686,7 @@ function SlidePreview({
       <p className="hint">
         {level === 0
           ? "Before the first click"
-          : `Revealed through build ${level}`}
+          : `Shown through reveal step ${level}`}
       </p>
     </div>
   );
@@ -2067,7 +2065,7 @@ function DeckDefaultsEditor({
         disabled={disabled}
         onClick={() => onApply("effect")}
       >
-        Apply effect to all builds
+        Apply effect to all reveal steps
       </button>
     </details>
   );

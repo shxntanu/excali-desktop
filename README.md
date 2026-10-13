@@ -50,15 +50,15 @@ Every frame is a slide. Use **New slide** in the slides panel for a preset frame
 
 - **Slides** at the top right of the canvas opens the slides panel: drag thumbnails, or use ⌥↑/⌥↓ on a focused one, to reorder them. Click a slide to go to it; double-click to present from it.
 - **New slide ▾** offers 16:9, 16:10, 4:3, and custom dimensions, and remembers the last size. **Slide size** changes an existing frame without stretching its contents; **Lock aspect ratio** keeps its proportions when resizing. The freeform frame tool remains available.
-- **Slide actions** under each thumbnail offers **New after**, **Duplicate**, **Rename**, and **Delete**. New slides inherit the selected slide's dimensions unless a deck size is configured. Duplicates keep the slide's objects, groups, bindings, builds, transition, and dimensions. These operations support undo.
+- **Slide actions** under each thumbnail offers **New after**, **Duplicate**, **Rename**, and **Delete**. New slides inherit the selected slide's dimensions unless a deck size is configured. Duplicates keep the slide's objects, groups, bindings, reveal steps, transition, and dimensions. These operations support undo.
 - The new-slide options offer **Blank**, **Title + content**, **Two columns**, and **Diagram + caption** starters made of ordinary editable objects. Optional safe margins and center guides appear only in the editor. **Align selection to slide** moves selected objects together within those margins, including bound labels.
-- **Deck defaults** sets the size, transition/speed, and animation effect for new slides and builds. Each has an explicit **Apply to all** action for existing content. Defaults are saved with slide frames in the drawing; applying a size changes frames without stretching their contents.
+- **Deck defaults** sets the size, transition/speed, and animation effect for new slides and reveal steps. Each has an explicit **Apply to all** action for existing content. Defaults are saved with slide frames in the drawing; applying a size changes frames without stretching their contents.
 - With a slide or anything on it selected, the panel sets how the slide comes in (**Move** flies the camera across the canvas, **Dissolve** crossfades, **Cut** is instant), the speed, and whether to skip it when presenting.
-- **Animations** shows builds by object label. Select objects and choose **Reveal together** or **Reveal separately**, or assign them to an existing build. Each row selects its objects, changes its effect, and removes its animation. Drag rows, use their arrow buttons, or press ⌥↑/⌥↓ on a focused row to reorder builds. Bound text follows its container.
-- **Preview** plays builds inside the panel without editing the drawing. Previous/next, Restart, and ←/→/Home/End step through the reveals. Optional numbered canvas badges show build order and select their objects.
-- While presenting: → / Space / Enter or a click goes to the next build or slide, ← / Backspace or a right-click goes back, ⇧→/⇧← skip whole slides, Home/End jump to the ends, a number followed by Enter jumps to that slide, L toggles the laser pointer, B or W blanks the screen, ? lists the shortcuts, and Esc ends the presentation.
+- **Reveal steps** shows reveal steps by object label. Select objects and choose **Reveal together** or **Reveal separately**, or assign them to an existing reveal step. Each row selects its objects, changes its effect, and removes its animation. Drag rows, use their arrow buttons, or press ⌥↑/⌥↓ on a focused row to reorder reveal steps. Bound text follows its container.
+- **Preview** plays reveal steps inside the panel without editing the drawing. Previous/next, Restart, and ←/→/Home/End step through the reveals. Optional numbered canvas badges show reveal order and select their objects.
+- While presenting: → / Space / Enter or a click goes to the next reveal step or slide, ← / Backspace or a right-click goes back, ⇧→/⇧← skip whole slides, Home/End jump to the ends, a number followed by Enter jumps to that slide, L toggles the laser pointer, B or W blanks the screen, ? lists the shortcuts, and Esc ends the presentation.
 
-Slides are shown fullscreen and letterboxed to each frame's shape. Slide order, transitions, and builds are saved in the drawing (in the elements' `customData`), so they travel with the file; excalidraw.com ignores them. Presenting never modifies the drawing. With reduced motion turned on in the system settings, transitions and builds are instant.
+Slides are shown fullscreen and letterboxed to each frame's shape. Slide order, transitions, and reveal steps are saved in the drawing (in the elements' `customData`), so they travel with the file; excalidraw.com ignores them. Presenting never modifies the drawing. With reduced motion turned on in the system settings, transitions and reveal steps are instant.
 
 Use Open for drawings and Excalidraw's Insert image tool for images. File drag-and-drop is not supported in this first version. The canvas is temporarily inactive during file operations.
 
@@ -174,7 +174,7 @@ five-slide presentation explaining it and save the drawing.”
 | `read_me`, `create_view` | Official element reference and compact diagram creation |
 | `list_documents`, `get_scene`, `read_checkpoint` | Open tabs, live elements, embedded images, and manual edits |
 | `update_elements` | Undoable element edits and deletion |
-| `create_slides`, `update_slide` | Frame-based slides, order, transitions, visibility, and build steps |
+| `create_slides`, `update_slide` | Frame-based slides, order, transitions, visibility, and reveal steps |
 | `list_drawings`, `open_drawing`, `save_document` | Workspace discovery, opening, and atomic saves |
 | `import_drawing`, `add_files` | Portable drawing imports and embedded base64 images |
 | `export_scene` | SVG or PNG of a drawing or an individual slide |
@@ -195,9 +195,9 @@ streaming animation are replaced by the desktop editor.
 `create_slides` takes slides with a title, optional dimensions (default
 1280×720), settings, and compact Excalidraw elements. Element coordinates are
 relative to each slide. A title is placed at (64,48); put body content below
-y=120. Pass `documentId` to append slides to a drawing. For a build, set an
+y=120. Pass `documentId` to append slides to a drawing. For a reveal step, set an
 element's `customData` to `{"build":{"step":1,"effect":"rise"}}`.
-`update_slide` can change those builds and the frame's saved slide settings.
+`update_slide` can change those reveal steps and the frame's saved slide settings.
 
 Agent changes remain unsaved until `save_document` or your Save command runs.
 They participate in crash recovery; edits to an existing tab are undoable.

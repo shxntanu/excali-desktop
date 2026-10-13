@@ -608,7 +608,7 @@ export default function Presenter({
           {current.steps.length > 0 && (
             <span
               className="presenter-steps"
-              aria-label={`Build ${position.step} of ${current.steps.length}`}
+              aria-label={`Reveal step ${position.step} of ${current.steps.length}`}
             >
               {current.steps.map((_, index) => (
                 <i
@@ -663,7 +663,7 @@ export default function Presenter({
         >
           <dl>
             <dt>→ Space Enter</dt>
-            <dd>Next build or slide</dd>
+            <dd>Next reveal step or slide</dd>
             <dt>← Backspace</dt>
             <dd>Previous</dd>
             <dt>⇧→ ⇧←</dt>
