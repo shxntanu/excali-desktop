@@ -3,15 +3,19 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "bun@1.4.0",
+  "engines": {
+    "bun": ">=1.4.0"
+  },
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
-    "tauri": "tauri",
-    "desktop": "tauri dev",
-    "desktop:build": "tauri build",
-    "test": "node --experimental-strip-types --test src/document.test.ts",
-    "postinstall": "node scripts/copy-fonts.mjs"
+    "dev": "bun --bun vite --host 127.0.0.1",
+    "build": "bun --bun tsc -b && bun --bun vite build",
+    "preview": "bun --bun vite preview",
+    "tauri": "bun ./node_modules/.bin/tauri",
+    "desktop": "bun run tauri dev",
+    "desktop:build": "bun run tauri build",
+    "test": "bun test",
+    "postinstall": "bun scripts/copy-fonts.mjs"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "0.18.1",
