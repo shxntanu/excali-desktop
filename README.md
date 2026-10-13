@@ -101,28 +101,65 @@ Excalidraw and the other dependencies retain their respective licenses. This wra
 The desktop app exposes a local MCP server over **stdio**, using the official
 [Excalidraw MCP](https://github.com/excalidraw/excalidraw-mcp) element format and
 reference instructions, extended with desktop documents and presentations.
-Keep Excali Desktop open while your agents work. Bun 1.4+ runs the server.
+Keep Excali Desktop open while your agents work. The installed app contains
+an MCP executable with its runtime, dependencies, and instructions embedded.
+Users do not need Bun, Node.js, or the source repository.
 
-Add this to an agent client's MCP configuration (use your absolute paths):
+For a macOS app installed in `/Applications`, add this to an agent client's
+MCP configuration:
 
 ```json
 {
   "mcpServers": {
     "excali-desktop": {
-      "command": "/absolute/path/to/bun",
-      "args": ["/absolute/path/to/excali-desktop/scripts/mcp.ts"]
+      "command": "/Applications/Excali Desktop.app/Contents/MacOS/excali-mcp",
+      "args": []
     }
   }
 }
 ```
 
-Run `which bun` to find the executable. The installed macOS app also includes
-an independent server bundle; replace the script argument with
-`/Users/YOUR_NAME/Applications/Excali Desktop.app/Contents/Resources/mcp.js`.
-The bundle includes its dependencies and instructions, so this option does
-not require the source checkout. Rebuild the desktop app to include it.
-For development, `bun run mcp` starts the stdio server; it waits for an MCP
-client rather than accepting interactive commands.
+Use the actual installation path if the app lives somewhere else, such as
+`~/Applications`; MCP configuration should contain an absolute path.
+The client launches the embedded executable over stdio, and it connects to
+the running editor automatically. App updates replace the server together
+with the editor.
+
+Source developers can still run `bun run mcp`, or configure Bun as the
+command with the absolute path to `scripts/mcp.ts` as its argument. Bun is
+needed only for source development and builds. A stdio server waits for an
+MCP client rather than accepting interactive commands.
+
+### Publishing builds
+
+`bun run desktop:build` compiles the server into a standalone executable
+with Bun and packages it as a Tauri sidecar inside the macOS app. Distribute
+`src-tauri/target/release/bundle/macos/Excali Desktop.app`; the repository,
+`node_modules`, and Bun installation are not part of the user setup. The
+embedded runtime increases the app's size.
+
+Build separate Apple Silicon and Intel releases using the matching build
+machine. For a cross-build, install the matching Rust target and set
+`MCP_TARGET` to the same target passed to Tauri, for example:
+
+```sh
+MCP_TARGET=x86_64-apple-darwin bun run tauri build --target x86_64-apple-darwin
+```
+
+The build helper also recognizes common Linux and Windows targets; native
+app packaging still needs the corresponding platform configuration and
+prerequisites. Configure Apple code signing and notarization before public
+macOS distribution. Tauri manages the executable as a bundled sidecar.
+
+Verify a release's embedded server with:
+
+```sh
+bun scripts/check-mcp.ts "src-tauri/target/release/bundle/macos/Excali Desktop.app/Contents/MacOS/excali-mcp"
+```
+
+This check starts the executable in an empty temporary directory with Bun
+absent from `PATH`, then verifies MCP initialization, tools, embedded
+instructions, resources, and prompts. It does not modify drawings.
 
 Ask an agent: “Use excali-desktop to draw our architecture, then create a
 five-slide presentation explaining it and save the drawing.”

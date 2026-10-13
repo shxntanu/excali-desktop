@@ -17,7 +17,7 @@
     "test": "bun test",
     "postinstall": "bun scripts/copy-fonts.mjs",
     "mcp": "bun scripts/mcp.ts",
-    "build:mcp": "bun build scripts/mcp.ts --target bun --outfile src-tauri/resources/mcp.js"
+    "build:mcp": "bun scripts/build-mcp.ts"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "0.18.1",
