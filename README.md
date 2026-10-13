@@ -16,10 +16,50 @@ Create presentations, slide decks, and work with multiple Excalidraw files at on
 
 ## Install
 
-Run the following command to build and install Excali Desktop in `~/Applications` on your computer.
+Download the macOS app from [GitHub Releases](https://github.com/shxntanu/excali-desktop/releases/latest). You do not need to clone this repository or install Bun, Node.js, Rust, or any other development tools. The editor, fonts, and MCP server are included.
+
+1. Open **Apple menu → About This Mac** to check your processor. Download the `.dmg` under the release's **Assets**: choose `aarch64` for an Apple Silicon Mac (M1, M2, M3, etc.), or `x64` for an Intel Mac. The GitHub-generated **Source code** archives are not installers.
+2. Double-click the downloaded `.dmg` to mount it.
+3. Drag **Excali Desktop** onto the **Applications** shortcut in the disk image. If prompted, authenticate to copy it into `/Applications`.
+4. Eject the disk image in Finder. Open **Excali Desktop** from your Applications folder, rather than running it from inside the disk image.
+
+### First launch of an unsigned app
+
+These releases are **not Developer ID signed or notarized by Apple**, so macOS may say it cannot verify the developer or check the app for malicious software.
+
+1. Try opening the installed app once, then dismiss the blocked-app message without moving the app to the Trash.
+2. Open **System Settings → Privacy & Security**. Scroll down to the security section and find the message about Excali Desktop being blocked.
+3. Click **Open Anyway**, authenticate if asked, and confirm **Open**. This approval normally only needs to be done once for that installed version. On older macOS versions, the setting is in **System Preferences → Security & Privacy → General**.
+
+If macOS instead reports that the app is “damaged” or there is no **Open Anyway** option, and you downloaded it from this repository's release page, remove the quarantine attribute from this app only:
 
 ```sh
-bun run desktop:build && mkdir -p ~/Applications && rm -rf ~/Applications/"Excali Desktop.app" && ditto src-tauri/target/release/bundle/macos/"Excali Desktop.app" ~/Applications/"Excali Desktop.app"
+xattr -dr com.apple.quarantine "/Applications/Excali Desktop.app"
+```
+
+Then open it again from Applications. This removes macOS's downloaded-file restriction for this app; use it only for a download you trust. A managed work Mac may prohibit these exceptions; contact your administrator if the setting is unavailable or blocked.
+
+### Updates and uninstalling
+
+To update, quit Excali Desktop, download the newer DMG, and drag the app into Applications again, choosing **Replace**. There is no automatic updater. macOS may ask you to approve the new version again. Your drawings and recovery data remain in `~/.excali-desktop`, separate from the application. The bundled MCP executable updates along with the app; keep using the same MCP configuration path.
+
+To uninstall, quit the app and move **Excali Desktop.app** from Applications to the Trash. This leaves your drawings intact. Delete `~/.excali-desktop` separately only if you want to remove your drawings and app data too.
+
+### Install from source
+
+For source development, clone the repository and install the dependencies:
+
+```sh
+# Install dependencies
+bun install --frozen-lockfile
+```
+
+Then build and install the app in `~/Applications`:
+
+```sh
+bun run desktop:build
+mkdir -p ~/Applications
+rm -rf ~/Applications/"Excali Desktop.app"ditto src-tauri/target/release/bundle/macos/"Excali Desktop.app" ~/Applications/"Excali Desktop.app"
 ```
 
 ## Run
@@ -27,7 +67,6 @@ bun run desktop:build && mkdir -p ~/Applications && rm -rf ~/Applications/"Excal
 Install [Bun](https://bun.sh/) 1.4.0+, Rust, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system. On macOS, install Xcode Command Line Tools with `xcode-select --install`.
 
 ```sh
-bun install --frozen-lockfile
 bun run desktop
 ```
 
@@ -72,6 +111,8 @@ Each tab keeps its own undo history while it is open. Images are embedded in sav
 
 Everything the app stores lives in `~/.excali-desktop`: your drawings, plus a hidden `.app` folder with the recovery snapshot (`recovery.json`) and the list of files opened from other locations (`linked.json`). A recovery snapshot left by an earlier version in the OS application-data folder is moved there on first launch.
 
+Panning, zooming, and selection do not count as document edits or restart recovery writes. The slides list stays unchanged during viewport movement; canvas guides and reveal badges track the viewport independently.
+
 Unsaved edits are debounced into the recovery snapshot approximately 800 ms after the last edit. A crash can lose edits made since the latest snapshot. The snapshot covers every tab with unsaved edits. At startup, each one is restored as an unsaved document in its own tab; save it to keep it. Recovery is removed after a successful save or an explicit discard. This is crash recovery, not version history.
 
 ## Build
@@ -81,6 +122,26 @@ bun run desktop:build
 ```
 
 On macOS the app is generated at `src-tauri/target/release/bundle/macos/Excali Desktop.app`. The current bundle target is a macOS `.app`; Windows/Linux packaging targets and signing should be configured when those distributions are needed.
+
+### Publish a macOS release on demand
+
+The [Publish macOS release workflow](.github/workflows/release-macos.yml) runs only when manually requested. It builds separate Apple Silicon and Intel DMGs and publishes a GitHub release after both builds and bundled MCP checks succeed. It has no schedule or push/tag trigger, and requires no Apple Developer account or signing secrets. GitHub's built-in `GITHUB_TOKEN` supplies release upload permission.
+
+1. Push this workflow to the repository's default branch so GitHub exposes **Run workflow**. Ensure GitHub Actions is enabled in the repository settings.
+2. Set the release version in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`, keeping them aligned; commit and push the changes you want to release. The workflow checks that the supplied tag matches `v` plus the version in `tauri.conf.json`.
+3. Open the repository's **Actions** tab, select **Publish macOS release**, and click **Run workflow**.
+4. Select the branch containing the release commit, and enter a new release tag such as `v0.1.0`. Click **Run workflow** to start. You need repository write access to dispatch it.
+5. Wait for both build jobs and the publish job to finish. The workflow creates the tag at the selected commit and publishes a release with both `.dmg` files and installation notes under [Releases](https://github.com/shxntanu/excali-desktop/releases).
+
+The release becomes public automatically when the workflow succeeds. Use a new tag for each release; an existing release causes publication to fail rather than replacing its assets. If a build fails, inspect its Actions logs, fix the problem, and run the workflow again. Successful build jobs also retain their DMG as a workflow artifact. No release is published when either build or its MCP check fails.
+
+To generate an unsigned DMG locally for your Mac:
+
+```sh
+CI=true bun run tauri build --bundles app,dmg
+```
+
+`CI=true` skips Finder automation for arranging the disk image, so packaging does not need permission to control Finder. GitHub Actions sets this automatically. Find the disk image in `src-tauri/target/release/bundle/dmg/`. The workflow explicitly selects each Rust/MCP target, so its build outputs instead live under `src-tauri/target/<target>/release/bundle/`.
 
 ## Frontend preview
 
@@ -159,8 +220,10 @@ MCP_TARGET=x86_64-apple-darwin bun run tauri build --target x86_64-apple-darwin
 
 The build helper also recognizes common Linux and Windows targets; native
 app packaging still needs the corresponding platform configuration and
-prerequisites. Configure Apple code signing and notarization before public
-macOS distribution. Tauri manages the executable as a bundled sidecar.
+prerequisites. The manual release workflow distributes unsigned macOS DMGs;
+see [Install](#install) for the first-launch approval steps. Apple code signing
+and notarization can be added later. Tauri manages the executable as a bundled
+sidecar.
 
 Verify a release's embedded server with:
 
