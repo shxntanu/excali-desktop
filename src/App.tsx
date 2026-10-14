@@ -34,7 +34,7 @@ import {
   fileName,
   isWithin,
   parentPath,
-  parseRecovery,
+  restoreSession,
   remapPath,
   serializeRecovery,
   validateDrawing,
@@ -141,6 +141,8 @@ function createDoc(
 const displayName = (path: string | null) =>
   fileName(path).replace(/\.excalidraw$/, "");
 
+const lastDrawingKey = "excali-last-drawing";
+
 export default function App() {
   const [ready, setReady] = useState(false);
   const [, render] = useReducer((value: number) => value + 1, 0);
@@ -230,6 +232,7 @@ export default function App() {
     const move = (value: string) => remapPath(value, from, to);
     for (const doc of docs.current) if (doc.path) doc.path = move(doc.path);
     render();
+    void writeSnapshots().catch(report);
     setFolder((value) => value && move(value));
     setExpanded((previous) => new Set([...previous].map(move)));
   }
@@ -287,6 +290,7 @@ export default function App() {
     activeId.current = doc.id;
     focusPending.current = true;
     render();
+    void writeSnapshots().catch(report);
   }
 
   function stopTimer(doc: Doc) {
@@ -310,7 +314,12 @@ export default function App() {
     const data = serializeRecovery(
       docs.current.flatMap((doc) =>
         doc.snapshot
-          ? [{ name: fileName(doc.path), drawing: doc.snapshot }]
+          ? [{
+              name: fileName(doc.path),
+              drawing: doc.snapshot,
+              path: doc.path,
+              active: doc.id === activeId.current,
+            }]
           : [],
       ),
     );
@@ -488,12 +497,14 @@ export default function App() {
   function addDoc(
     data: ExcalidrawInitialDataState | null,
     path: string | null,
+    replaceBlank = false,
   ) {
     const list = docs.current;
     const index = list.indexOf(current());
     const active = list[index];
-    // An untouched blank tab is replaced rather than left behind.
-    const replace = !active.path && !active.dirty && active.revision === 0;
+    // Opening a file may reuse a blank tab; New always keeps existing tabs.
+    const replace =
+      replaceBlank && !active.path && !active.dirty && active.revision === 0;
     if (replace) stopTimer(active);
     const doc = createDoc(data, path);
     list.splice(replace ? index : index + 1, replace ? 1 : 0, doc);
@@ -515,6 +526,7 @@ export default function App() {
         null,
       ),
       path,
+      true,
     );
   }
 
@@ -677,7 +689,17 @@ export default function App() {
     },
     close: () => {
       void run(async () => {
+        const selected = current();
         for (const doc of [...docs.current]) if (!(await canLeave(doc))) return;
+        // Save prompts visit other tabs; reopen the user's original selection next time.
+        activate(selected);
+        if (desktop && selected.path) {
+          try {
+            localStorage.setItem(lastDrawingKey, selected.path);
+          } catch (reason) {
+            report(reason);
+          }
+        }
         for (const doc of docs.current) stopTimer(doc);
         await queue.current(() => writeRecovery(null));
         if (desktop) await invoke("close_app");
@@ -1025,27 +1047,27 @@ export default function App() {
     let cancelled = false;
     void (async () => {
       try {
-        const saved = await readRecovery();
-        if (saved) {
-          const restored = await Promise.all(
-            parseRecovery(saved).map(async ({ drawing }) => {
-              const doc = createDoc(
-                await loadFromBlob(
-                  new Blob([drawing], { type: "application/json" }),
-                  null,
-                  null,
-                ),
-              );
-              doc.dirty = true;
-              doc.snapshot = drawing;
-              return doc;
-            }),
+        const session = await restoreSession(
+          await readRecovery(),
+          desktop ? localStorage.getItem(lastDrawingKey) : null,
+          readDrawing,
+          report,
+        );
+        const restored = await Promise.all(session.documents.map(async (item) => {
+          const doc = createDoc(
+            await loadFromBlob(
+              new Blob([item.drawing], { type: "application/json" }), null, null,
+            ),
+            typeof item.path === "string" ? item.path : null,
           );
-          if (cancelled || !restored.length) return;
-          docs.current = restored;
-          activeId.current = restored[0].id;
-          setRecovered(restored.length);
-        }
+          doc.dirty = item.dirty;
+          if (item.dirty) doc.snapshot = item.drawing;
+          return doc;
+        }));
+        if (cancelled || !restored.length) return;
+        docs.current = restored;
+        activeId.current = restored[session.activeIndex].id;
+        setRecovered(restored.filter((doc) => doc.dirty).length);
       } catch (reason) {
         report(reason);
       } finally {
@@ -1165,6 +1187,15 @@ export default function App() {
   const title = displayName(path);
 
   useEffect(() => {
+    if (!ready || !path || !desktop) return;
+    try {
+      localStorage.setItem(lastDrawingKey, path);
+    } catch (reason) {
+      report(reason);
+    }
+  }, [ready, path]);
+
+  useEffect(() => {
     const text = `${dirty ? "● " : ""}${title} — Excali Desktop`;
     document.title = text;
     if (desktop) void getCurrentWindow().setTitle(text).catch(report);
@@ -1175,6 +1206,10 @@ export default function App() {
     if (busy || !focusPending.current) return;
     focusPending.current = false;
     active.api?.refresh();
+    document.querySelector(".tab.active")?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
     editor.current
       ?.querySelector<HTMLElement>(".canvas.active .excalidraw-container")
       ?.focus();
@@ -1315,8 +1350,7 @@ export default function App() {
                 setDropTarget(null);
             }}
           >
-            {(!path ||
-              !workspace ||
+            {path && (!workspace ||
               (!isWithin(path, workspace.root) &&
                 !linked.some((item) => item.path === path))) && (
               <div

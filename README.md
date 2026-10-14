@@ -78,13 +78,14 @@ Bun manages dependencies and runs the JavaScript tooling and tests; Node.js is n
 
 Drawings live in `~/.excali-desktop`. The sidebar shows that folder as a tree of folders and drawings; click a drawing to open it.
 
-- **New** creates a blank drawing. **Save** puts a new drawing in the selected folder as "Untitled" (or "Untitled 2", …) and lets you name it right away.
+- **New** always creates a separate blank tab, so you can keep multiple untitled drawings open. Unsaved drawings appear only in the tab bar. **Save** puts a new drawing in the selected folder as "Untitled" (or "Untitled 2", …), adds it to the sidebar, and lets you name it right away.
 - The folder button next to **Drawings** creates a folder inside the selected one. Click **Drawings** to target the top level again.
 - Double-click a drawing or folder, or use its pencil button, to rename it. Enter confirms; Escape cancels.
 - **Open** uses a native file picker for `.excalidraw` files (and Excalidraw JSON) anywhere on disk. Files outside `~/.excali-desktop` stay where they are and are listed under **Other locations** in the sidebar so you can reopen them later; the × button removes one from the list without touching the file. Files saved with **Save as…** outside the drawings folder are listed there too.
 - **Save** writes back to the open file.
 - **Save as…** saves a copy at a new location and makes it the active document.
 - Each open drawing gets a tab above the canvas. Opening a drawing that is already open switches to its tab; a blank, untouched tab is reused instead of left behind. Close a tab with its × button, a middle click, its right-click menu, or Cmd/Ctrl+W (Shift+Cmd/Ctrl+W closes the window).
+- A new window reopens the last selected saved drawing. If unsaved tabs are recovered, the previously selected recovery tab takes priority. New tabs animate into view and respect your system’s reduced-motion setting.
 - Ctrl+Tab and Ctrl+Shift+Tab move between tabs; Cmd/Ctrl+1–8 jump to a tab and Cmd/Ctrl+9 to the last one.
 - Cmd/Ctrl+N (new tab), Cmd/Ctrl+O, Cmd/Ctrl+S, and Cmd/Ctrl+Shift+S are supported. Save and Save as apply to the current tab.
 - The application asks you to save, discard, or cancel before closing a modified drawing, including when quitting, once for each modified tab.

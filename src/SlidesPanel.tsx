@@ -1182,7 +1182,7 @@ function Dropdown({
         {trigger}
       </button>
       {open && (
-        <div className="dropdown-menu" role="menu" aria-label={label}>
+        <div className="slides-dropdown-menu" role="menu" aria-label={label}>
           {items.map((item, index) =>
             item ? (
               <button
