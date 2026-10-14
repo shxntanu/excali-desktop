@@ -1439,3 +1439,105 @@ kbd {
     animation: none !important;
   }
 }
+
+/* AI guidance stays above the canvas without blocking drawing. */
+.sidebar-footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding-top: 10px;
+}
+.ai-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ai-trigger:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.ai-help {
+  position: fixed;
+  inset: auto auto 56px 12px;
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100dvh - 80px);
+  margin: 0;
+  padding: 18px;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 12px;
+  background: var(--island);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.ai-help-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ai-help h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.ai-help p { margin: 12px 0; }
+.ai-drawing-label {
+  display: block;
+  margin: 16px 0 6px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.ai-prompt {
+  display: block;
+  width: 100%;
+  height: 180px;
+  margin-bottom: 10px;
+  padding: 10px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+  color: var(--text);
+  font: 12px/1.5 ui-monospace, monospace;
+}
+.ai-prompt:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.ai-help .ai-copy-status:empty { display: none; }
+.ai-help .ai-copy-status,
+.ai-help .ai-help-note { font-size: 12px; }
+.ai-help-note { color: var(--muted); }
+.ai-help details {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.ai-help summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.ai-help pre {
+  margin: 8px 0;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--hover);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.5 ui-monospace, monospace;
+}

@@ -1,4 +1,5 @@
 export type IconName =
+  | "robot"
   | "new"
   | "open"
   | "save"
@@ -38,6 +39,14 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
+      {name === "robot" && (
+        <>
+          <rect x="5" y="7" width="14" height="13" rx="3" />
+          <path d="M12 3v4M2 12v4M22 12v4M9 16h6" />
+          <circle cx="9" cy="12" r=".75" />
+          <circle cx="15" cy="12" r=".75" />
+        </>
+      )}
       {(name === "new" || name === "file" || name === "saveAs") && (
         <path d="M14 3v4a1 1 0 0 0 1 1h4" />
       )}

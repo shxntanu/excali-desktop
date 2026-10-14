@@ -177,6 +177,12 @@ Keep Excali Desktop open while your agents work. The installed app contains
 an MCP executable with its runtime, dependencies, and instructions embedded.
 Users do not need Bun, Node.js, or the source repository.
 
+Click the robot **AI** button at the bottom right of the sidebar for setup
+instructions and a **Copy drawing prompt** action. Paste the prompt into your
+assistant and replace the change placeholder with your request. It targets the
+current live tab by document ID, including unsaved edits. Keep that tab open;
+copy a fresh prompt after reopening it or restarting the app.
+
 For a macOS app installed in `/Applications`, add this to an agent client's
 MCP configuration:
 

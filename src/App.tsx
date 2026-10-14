@@ -71,6 +71,7 @@ import {
   filesSchema,
 } from "./mcp-schema";
 import Presenter from "./Presenter";
+import AiHelp from "./AiHelp";
 import { SlidesPanel, SlidesTrigger } from "./SlidesPanel";
 import {
   createDrawing,
@@ -1064,6 +1065,7 @@ export default function App() {
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
+      if (document.querySelector(".ai-help:popover-open")) return;
       // The presenter handles its own keys.
       if (presenting.current) return;
       if (
@@ -1470,6 +1472,12 @@ export default function App() {
               </>
             )}
           </div>
+          <AiHelp
+            key={active.mcpId}
+            documentId={active.mcpId}
+            name={displayName(active.path)}
+            path={active.path}
+          />
         </aside>
       )}
       <div
